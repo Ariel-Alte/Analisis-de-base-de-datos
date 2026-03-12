@@ -401,9 +401,9 @@ PLOTLY_THEME = dict(
     plot_bgcolor='rgba(26,34,53,0.6)',
     font=dict(family='IBM Plex Sans', color='#b0bec5'),
     colorway=['#4fc3f7','#81d4fa','#ef5350','#ffa726','#66bb6a','#ab47bc','#26c6da'],
-    xaxis=dict(gridcolor='#1e2a3a', linecolor='#2a3a50'),
-    yaxis=dict(gridcolor='#1e2a3a', linecolor='#2a3a50'),
 )
+# Estilos de ejes reutilizables (separados para no generar claves duplicadas en update_layout)
+AXIS_STYLE = dict(gridcolor='#1e2a3a', linecolor='#2a3a50')
 
 
 # ── TAB 1: RESÚMENES ──
@@ -459,7 +459,8 @@ with tab2:
             textfont=dict(size=13)
         ))
         fig_pie.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=300,
-                              legend=dict(orientation='h', y=-0.1))
+                              legend=dict(orientation='h', y=-0.1),
+                              xaxis=AXIS_STYLE, yaxis=AXIS_STYLE)
         st.plotly_chart(fig_pie, use_container_width=True)
 
     # Barras sistemas
@@ -471,7 +472,8 @@ with tab2:
         fig_sist = px.bar(sist_counts, x='Cantidad', y='Label', orientation='h',
                           color='Cantidad', color_continuous_scale='Blues')
         fig_sist.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=300,
-                               yaxis=dict(autorange='reversed', **PLOTLY_THEME['yaxis']),
+                               xaxis=AXIS_STYLE,
+                               yaxis=dict(autorange='reversed', **AXIS_STYLE),
                                coloraxis_showscale=False)
         st.plotly_chart(fig_sist, use_container_width=True)
 
@@ -493,7 +495,8 @@ with tab2:
             fill='tozeroy',
             fillcolor='rgba(79,195,247,0.1)'
         ))
-        fig_line.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=280)
+        fig_line.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=280,
+                               xaxis=AXIS_STYLE, yaxis=AXIS_STYLE)
         st.plotly_chart(fig_line, use_container_width=True)
 
     # Top fallas barras
@@ -503,7 +506,8 @@ with tab2:
     fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
                      color='Cantidad', color_continuous_scale='Blues_r')
     fig_top.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,l=10,r=10),
-                          yaxis=dict(autorange='reversed', **PLOTLY_THEME['yaxis']),
+                          xaxis=AXIS_STYLE,
+                          yaxis=dict(autorange='reversed', **AXIS_STYLE),
                           coloraxis_showscale=False)
     st.plotly_chart(fig_top, use_container_width=True)
 
@@ -529,8 +533,8 @@ with tab2:
         fig_desv.update_layout(
             **PLOTLY_THEME, height=380, barmode='group',
             margin=dict(t=10,b=80,l=10,r=60),
-            xaxis=dict(tickangle=-35, **PLOTLY_THEME['xaxis']),
-            yaxis=dict(title='Cantidad', **PLOTLY_THEME['yaxis']),
+            xaxis=dict(tickangle=-35, **AXIS_STYLE),
+            yaxis=dict(title='Cantidad', **AXIS_STYLE),
             yaxis2=dict(title='Desvío Máx.', overlaying='y', side='right',
                         gridcolor='#1e2a3a', linecolor='#2a3a50'),
             legend=dict(orientation='h', y=1.05)
