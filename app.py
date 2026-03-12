@@ -183,16 +183,61 @@ def calcular_desvio(row):
 
 @st.cache_data(show_spinner=False)
 def cargar_y_analizar(file_bytes):
-    """Lee el Excel y devuelve df principal + df de desvíos."""
+    """Lee el Excel y devuelve df principal + df de desvios. Auto-detecta estructura."""
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
     ws = wb.active
 
+    # Detectar fila de headers (primera fila con valor en col B)
+    header_row = 2
+    for i, row in enumerate(ws.iter_rows(min_row=1, max_row=10, values_only=True), start=1):
+        if row[1] is not None:
+            header_row = i
+            break
+    data_start = header_row + 1
+
+    # Leer headers para encontrar donde empieza el segundo bloque
+    headers_raw = [ws.cell(row=header_row, column=c).value
+                   for c in range(1, ws.max_column + 1)]
+
+    # Primer header con contenido
+    first_header = next((h for h in headers_raw if h is not None), None)
+
+    # Buscar segunda ocurrencia del mismo header -> inicio bloque 2
+    b1_start = next((i for i, h in enumerate(headers_raw) if h is not None), 1)
+    bloque2_col = None
+    if first_header:
+        found = False
+        for i, h in enumerate(headers_raw):
+            if h == first_header:
+                if not found:
+                    found = True
+                else:
+                    bloque2_col = i
+                    break
+
+    b1_end = bloque2_col if bloque2_col else len(headers_raw)
+
+    # Calcular inicio real del bloque 2 (saltar columnas vacias entre bloques)
+    b2_start = b2_end = None
+    if bloque2_col is not None:
+        b2_start = bloque2_col
+        for i in range(bloque2_col, len(headers_raw)):
+            if headers_raw[i] is not None:
+                b2_start = i
+                break
+        b2_end = b2_start + (b1_end - b1_start)
+
+    # Leer filas de ambos bloques
     rows1, rows2 = [], []
-    for row in ws.iter_rows(min_row=3, values_only=True):
-        r1, r2 = row[1:34], row[36:69]
-        if any(v is not None for v in r1): rows1.append(r1)
-        if any(v is not None for v in r2): rows2.append(r2)
+    for row in ws.iter_rows(min_row=data_start, values_only=True):
+        r1 = row[b1_start:b1_end]
+        if any(v is not None for v in r1):
+            rows1.append(r1)
+        if b2_start and b2_end and b2_end <= len(row):
+            r2 = row[b2_start:b2_end]
+            if any(v is not None for v in r2):
+                rows2.append(r2)
 
     cols = [
         'Mes','Responsable','Contrato','Linea','Vehiculo','Modulo','MR',
@@ -203,10 +248,25 @@ def cargar_y_analizar(file_bytes):
         'SistUnitReInsp','SistAmpReInsp','ItemsReInsp','DescReInsp',
         'CritReInsp','DescAgrupReInsp','CodReInsp'
     ]
-    df = pd.concat([
-        pd.DataFrame(rows1, columns=cols),
-        pd.DataFrame(rows2, columns=cols)
-    ], ignore_index=True)
+
+    def filas_a_df(rows):
+        """Crea DataFrame tolerando diferencias en cantidad de columnas."""
+        if not rows:
+            return pd.DataFrame(columns=cols)
+        n = len(rows[0])
+        n_cols = len(cols)
+        if n == n_cols:
+            return pd.DataFrame(rows, columns=cols)
+        elif n < n_cols:
+            rows_pad = [list(r) + [None] * (n_cols - n) for r in rows]
+            return pd.DataFrame(rows_pad, columns=cols)
+        else:
+            return pd.DataFrame([r[:n_cols] for r in rows], columns=cols)
+
+    dfs = [filas_a_df(rows1)]
+    if rows2:
+        dfs.append(filas_a_df(rows2))
+    df = pd.concat(dfs, ignore_index=True)
 
     # Calcular desvíos
     df_ref = df[df['RefMin'].notna() | df['RefMax'].notna()].copy()
