@@ -150,10 +150,10 @@ MONTH_ORDER = [
 ]
 
 SISTEMA_LABELS = {
-    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Comando',
-    'PM':'Partes Mecánicas','EBC':'Equipo de a Bordo','NSF':'Neumo-freno (S/F)',
-    'MSF':'Neumo-freno (C/F)','DSM':'Suspensión','CAB':'Cabina',
-    'ATS':'ATS','DOC':'Documentación','NGN':'Motor'
+    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Choque',
+    'PM':'Par Montado','EBC':'Elementos bajo coche','NSF':'Sistema de freno Neumatico',
+    'MSF':'Sistema de freno Mecanico','DSM':'Sala de motor Diesel','CAB':'Cabina',
+    'ATS':'ATS','DOC':'Documentación','NGN':'Ninguna obsevación en el informe'
 }
 
 def parse_valor(v):
@@ -507,8 +507,8 @@ with tab1:
 
     with col_a:
         st.markdown("#### Criticidad")
-        crit_df = df['Criticidad'].value_counts().reset_index()
-        crit_df.columns = ['Criticidad','Cantidad']
+        crit_df = df['CritAmpliado'].value_counts().reset_index()
+        crit_df.columns = ['CritAmpliado','Cantidad']
         crit_df['Porcentaje'] = (crit_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(crit_df, use_container_width=True, hide_index=True)
 
@@ -526,8 +526,8 @@ with tab1:
         sist_df['%'] = (sist_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(sist_df[['Código','Sistema','Cantidad','%']], use_container_width=True, hide_index=True)
 
-        st.markdown("#### Top 10 Vehículos con más observaciones")
-        veh_df = df['Vehiculo'].value_counts().head(10).reset_index()
+        st.markdown("#### Top 20 Vehículos con más observaciones")
+        veh_df = df['Vehiculo'].value_counts().head(20).reset_index()
         veh_df.columns = ['Vehículo','Observaciones']
         st.dataframe(veh_df, use_container_width=True, hide_index=True)
 
@@ -545,7 +545,7 @@ with tab2:
     # Torta criticidad
     with row1_l:
         st.markdown("#### Distribución por Criticidad")
-        crit_counts = df['Criticidad'].value_counts()
+        crit_counts = df['CritAmpliado'].value_counts()
         fig_pie = go.Figure(go.Pie(
             labels=crit_counts.index,
             values=crit_counts.values,
