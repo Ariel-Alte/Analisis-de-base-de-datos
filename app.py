@@ -150,10 +150,20 @@ MONTH_ORDER = [
 ]
 
 SISTEMA_LABELS = {
-    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Choque',
-    'PM':'Par Montado','EBC':'Elementos bajo coche','NSF':'Sistema de freno Neumatico',
-    'MSF':'Sistema de freno Mecanico','DSM':'Sala de motor Diesel','CAB':'Cabina',
-    'ATS':'ATS','DOC':'Documentación','NGN':'Ninguna obsevación en el informe'
+    'BG' : 'Bogie',
+    'SLN': 'Salón',
+    'EXT': 'Exterior',
+    'TYC': 'Tracción y Choque',
+    'PM' : 'Par Montado',
+    'EBC': 'Elementos bajo coche',
+    'NSF': 'Sistema de freno Neumatico',
+    'MSF': 'Sistema de freno Mecanico',
+    'SFM': 'Sistema de freno Mecanico',
+    'DSM': 'Sala de motor Diesel',
+    'CAB': 'Cabina',
+    'ATS': 'ATS',
+    'DOC': 'Documentación',
+    'NGN': 'Ninguna observación en el informe',
 }
 
 def parse_valor(v):
@@ -364,27 +374,44 @@ def generar_word(df, df_out):
     table_from_df(top_df)
     doc.add_paragraph()
 
-    # Desvíos
-    add_section("3. Resumen de Desvíos por Categoría")
-    desv_sum = df_out.groupby('DescAgrupada').agg(
-        Cantidad=('Desviacion','count'),
-        Desv_Promedio=('Desviacion', lambda x: round(x.mean(),2)),
-        Desv_Max_Abs=('Desviacion', lambda x: round(x.abs().max(),2)),
-        Criticos=('Criticidad', lambda x: (x=='C').sum())
-    ).reset_index().sort_values('Cantidad', ascending=False)
-    desv_sum.columns = ['Categoría','Cantidad','Desvío Prom.','Desvío Máx.','Críticos']
-    table_from_df(desv_sum)
-    doc.add_paragraph()
+    # Desvíos y detalle — solo si el archivo tiene columnas de referencia
+    tiene_desv = not df_out.empty and 'Desviacion' in df_out.columns
 
-    # Detalle
-    add_section("4. Detalle de Observaciones Fuera de Parámetro")
-    det = df_out[['Vehiculo','Mes','SistemaUnidad','Descripcion','RefMin','RefMax',
-                  'ValorRelevado','Desviacion','CritAmpliado']].copy()
-    det.columns = ['Vehículo','Mes','Sistema','Descripción','Ref Min','Ref Max',
-                   'Relevado','Desvío','Crit.']
-    det['Desvío'] = det['Desvío'].round(2)
-    det['Relevado'] = det['Relevado'].round(1)
-    table_from_df(det)
+    if tiene_desv:
+        add_section("3. Resumen de Desvíos por Categoría")
+        desv_sum = df_out.groupby('DescAgrupada').agg(
+            Cantidad=('Desviacion','count'),
+            Desv_Promedio=('Desviacion', lambda x: round(x.mean(),2)),
+            Desv_Max_Abs=('Desviacion', lambda x: round(x.abs().max(),2)),
+            Criticos=('Criticidad', lambda x: (x=='C').sum())
+        ).reset_index().sort_values('Cantidad', ascending=False)
+        desv_sum.columns = ['Categoría','Cantidad','Desvío Prom.','Desvío Máx.','Críticos']
+        table_from_df(desv_sum)
+        doc.add_paragraph()
+
+        add_section("4. Detalle de Observaciones Fuera de Parámetro")
+        # Columnas base siempre presentes
+        cols_det = ['Vehiculo','Mes','SistemaUnidad','Descripcion','Criticidad']
+        rename_det = ['Vehículo','Mes','Sistema','Descripción','Crit.']
+        # Agregar columnas de referencia solo si existen
+        for col in ['RefMin','RefMax','ValorRelevado','Desviacion']:
+            if col in df_out.columns:
+                cols_det.insert(-1, col)
+                rename_det.insert(-1, {'RefMin':'Ref Min','RefMax':'Ref Max',
+                                       'ValorRelevado':'Relevado','Desviacion':'Desvío'}[col])
+        det = df_out[cols_det].copy()
+        det.columns = rename_det
+        if 'Desvío' in det.columns:
+            det['Desvío'] = det['Desvío'].round(2)
+        if 'Relevado' in det.columns:
+            det['Relevado'] = det['Relevado'].round(1)
+        table_from_df(det)
+    else:
+        add_section("3. Observaciones sin valores de referencia")
+        doc.add_paragraph(
+            "Este archivo no contiene columnas de valores de referencia paramétrica. "
+            "El análisis de desvíos no está disponible para este formato."
+        )
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -538,7 +565,7 @@ with tab1:
 
     MR_CONFIG = {
         'LOC' : {'label': 'Locomotoras (LOC)',        'servicios': ['LD', 'PERIFERICO', 'AMBA']},
-        'CCRR': {'label': 'Coches Remolcados (CCRR)', 'servicios': ['LD', 'PERIFERICO', 'AMBA']},
+        'CCRR': {'label': 'Coches Remolcados (CCRR)', 'servicios': ['LD', 'PERIFERICO']},
         'CCEE': {'label': 'Coches Eléctricos (CCEE)', 'servicios': []},
         'CCMM': {'label': 'Coche Motor (CCMM)',       'servicios': ['PERIFERICO', 'AMBA']},
     }
@@ -722,7 +749,7 @@ with tab3:
 
         meses_disponibles   = sorted(df_out['Mes'].dropna().unique().tolist())
         sistemas_disponibles = sorted(df_out['SistemaUnidad'].dropna().unique().tolist())
-        criticas_opciones   = sorted(df_out['CritAmpliado'].dropna().unique().tolist())
+        criticas_opciones   = sorted(df_out['Criticidad'].dropna().unique().tolist())
 
         with fc1:
             sel_mes = st.multiselect("Mes", meses_disponibles, default=meses_disponibles,
