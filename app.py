@@ -186,7 +186,7 @@ def cargar_y_analizar(file_bytes):
     """
     Lee el Excel y devuelve (df, df_out).
     Auto-detecta dos formatos:
-      Formato A: dos bloques en paralelo, con columnas RefMin/RefMax/Relevado (ej: San Martin)
+      Formato A: dos bloques en paralelo, con columnas RefMin/RefMax/Relevado
       Formato B: un solo bloque, sin columnas de referencia (ej: Roca)
     """
     import openpyxl
@@ -397,7 +397,7 @@ def generar_word(df, df_out):
 # ─────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("## 🔧 Mantenimiento LSM")
+    st.markdown("## 🔧 Análisis de Mantenimiento")
     st.markdown("---")
     uploaded = st.file_uploader(
         "Subir archivo Excel",
@@ -413,7 +413,7 @@ with st.sidebar:
     4. Descargá el informe Word
     """)
     st.markdown("---")
-    st.caption("Análisis automático de desvíos · Línea San Martín")
+    st.caption("Análisis automático de desvíos · Material Rodante")
 
 
 # ─────────────────────────────────────────────
@@ -447,23 +447,37 @@ if uploaded is None:
 with st.spinner("Procesando archivo..."):
     df, df_out = cargar_y_analizar(uploaded.read())
 
-total_obs   = len(df)
-total_veh   = df['Vehiculo'].dropna().nunique()
-total_crit  = int((df['Criticidad'] == 'C').sum())
-total_rech  = int((df['Criticidad'] == 'R').sum())
-total_desv  = len(df_out)
+total_obs        = len(df)
+total_veh        = df['Vehiculo'].dropna().nunique()
+total_normal     = int((df['Criticidad'] == 'N').sum())
+total_crit       = int((df['Criticidad'] == 'C').sum())
+total_rech       = int((df['Criticidad'] == 'R').sum())
+total_corregidas = int((df['Criticidad'] == 'O').sum())
+total_nrc        = int((df['Criticidad'] == 'NRC').sum())
+total_desv       = len(df_out)
+pct_alta         = round((total_crit + total_rech) / total_obs * 100, 1) if total_obs > 0 else 0
 
 # ─────────────────────────────────────────────
-# KPIs
+# KPIs — fila 1: volumen general
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-header">Resumen del período</div>', unsafe_allow_html=True)
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.markdown(kpi("Total Observaciones", total_obs), unsafe_allow_html=True)
-c2.markdown(kpi("Vehículos", total_veh), unsafe_allow_html=True)
-c3.markdown(kpi("Críticas (C)", total_crit, "danger"), unsafe_allow_html=True)
-c4.markdown(kpi("Rechazadas (R)", total_rech, "warning"), unsafe_allow_html=True)
-c5.markdown(kpi("Fuera de Parámetro", total_desv, "warning"), unsafe_allow_html=True)
+c1, c2, c3, c4 = st.columns(4)
+c1.markdown(kpi("Total Observaciones", total_obs),          unsafe_allow_html=True)
+c2.markdown(kpi("Vehículos Inspeccionados", total_veh),     unsafe_allow_html=True)
+c3.markdown(kpi("Sin Observaciones (NRC)", total_nrc),      unsafe_allow_html=True)
+c4.markdown(kpi("% Criticidad Alta (C+R)", f"{pct_alta}%", "danger"), unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# KPIs — fila 2: desglose por criticidad
+# ─────────────────────────────────────────────
+d1, d2, d3, d4 = st.columns(4)
+d1.markdown(kpi("Normales (N)",          total_normal,     "success"), unsafe_allow_html=True)
+d2.markdown(kpi("Corregidas en Insp. (O)", total_corregidas, "success"), unsafe_allow_html=True)
+d3.markdown(kpi("Críticas (C)",          total_crit,       "danger"),  unsafe_allow_html=True)
+d4.markdown(kpi("Rechazadas (R)",        total_rech,       "warning"), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -562,7 +576,7 @@ with tab2:
     st.markdown("#### Evolución Mensual de Observaciones")
     monthly = []
     for m in MONTH_ORDER:
-        cnt = df[df['Mes'].str.upper() == m.upper()].shape[0]
+        cnt = df[df['Mes'].str.upper() == m].shape[0]
         if cnt > 0:
             monthly.append({'Mes': m, 'Observaciones': cnt})
     monthly_df = pd.DataFrame(monthly)
