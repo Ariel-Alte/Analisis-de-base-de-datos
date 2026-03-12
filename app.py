@@ -150,10 +150,10 @@ MONTH_ORDER = [
 ]
 
 SISTEMA_LABELS = {
-    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Comando',
-    'PM':'Partes Mecánicas','EBC':'Equipo de a Bordo','NSF':'Neumo-freno (S/F)',
-    'MSF':'Neumo-freno (C/F)','DSM':'Suspensión','CAB':'Cabina',
-    'ATS':'ATS','DOC':'Documentación','NGN':'Motor'
+    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Choque',
+    'PM':'Par Montado','EBC':'Elementos bajo coche','NSF':'Sistema de freno Neumatico',
+    'MSF':'Sistema de freno Mecanico','DSM':'Sala de motor Diesel','CAB':'Cabina',
+    'ATS':'ATS','DOC':'Documentación','NGN':'Ninguna obsevación en el informe'
 }
 
 def parse_valor(v):
@@ -351,7 +351,7 @@ def generar_word(df, df_out):
 
     # Resumen criticidad
     add_section("1. Distribución por Criticidad")
-    crit_df = df['Criticidad'].value_counts().reset_index()
+    crit_df = df['CritAmpliado'].value_counts().reset_index()
     crit_df.columns = ['Criticidad', 'Cantidad']
     crit_df['Porcentaje'] = (crit_df['Cantidad'] / len(df) * 100).round(1).astype(str) + '%'
     table_from_df(crit_df)
@@ -379,7 +379,7 @@ def generar_word(df, df_out):
     # Detalle
     add_section("4. Detalle de Observaciones Fuera de Parámetro")
     det = df_out[['Vehiculo','Mes','SistemaUnidad','Descripcion','RefMin','RefMax',
-                  'ValorRelevado','Desviacion','Criticidad']].copy()
+                  'ValorRelevado','Desviacion','CritAmpliado']].copy()
     det.columns = ['Vehículo','Mes','Sistema','Descripción','Ref Min','Ref Max',
                    'Relevado','Desvío','Crit.']
     det['Desvío'] = det['Desvío'].round(2)
@@ -465,8 +465,8 @@ st.markdown('<div class="section-header">Resumen del período</div>', unsafe_all
 c1, c2, c3, c4 = st.columns(4)
 c1.markdown(kpi("Total Observaciones", total_obs),          unsafe_allow_html=True)
 c2.markdown(kpi("Vehículos Inspeccionados", total_veh),     unsafe_allow_html=True)
-c3.markdown(kpi("Sin Observaciones (NRC)", total_nrc),      unsafe_allow_html=True)
-c4.markdown(kpi("% Criticidad Alta (C+R)", f"{pct_alta}%", "danger"), unsafe_allow_html=True)
+c3.markdown(kpi("Sin Observaciones", total_nrc),      unsafe_allow_html=True)
+c4.markdown(kpi("% Criticidad Alta (Rechazo + Critico)", f"{pct_alta}%", "danger"), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -474,10 +474,10 @@ st.markdown("<br>", unsafe_allow_html=True)
 # KPIs — fila 2: desglose por criticidad
 # ─────────────────────────────────────────────
 d1, d2, d3, d4 = st.columns(4)
-d1.markdown(kpi("Normales (N)",          total_normal,     "success"), unsafe_allow_html=True)
-d2.markdown(kpi("Corregidas en Insp. (O)", total_corregidas, "success"), unsafe_allow_html=True)
-d3.markdown(kpi("Críticas (C)",          total_crit,       "danger"),  unsafe_allow_html=True)
-d4.markdown(kpi("Rechazadas (R)",        total_rech,       "warning"), unsafe_allow_html=True)
+d1.markdown(kpi("Normales",          total_normal,     "success"), unsafe_allow_html=True)
+d2.markdown(kpi("Corregidas en Inspección", total_corregidas, "success"), unsafe_allow_html=True)
+d3.markdown(kpi("Críticas",          total_crit,       "danger"),  unsafe_allow_html=True)
+d4.markdown(kpi("Rechazadas",        total_rech,       "warning"), unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -507,7 +507,7 @@ with tab1:
 
     with col_a:
         st.markdown("#### Criticidad")
-        crit_df = df['Criticidad'].value_counts().reset_index()
+        crit_df = df['CritAmpliado'].value_counts().reset_index()
         crit_df.columns = ['Criticidad','Cantidad']
         crit_df['Porcentaje'] = (crit_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(crit_df, use_container_width=True, hide_index=True)
@@ -537,10 +537,10 @@ with tab1:
     st.markdown("#### Top 10 por Tipo de Material Rodante")
 
     MR_CONFIG = {
-        'LOC' : {'label': 'Locomotoras (LOC)',        'servicios': ['LD', 'PERIFERICO']},
-        'CCRR': {'label': 'Coches Remolcados (CCRR)', 'servicios': ['LD', 'PERIFERICO']},
+        'LOC' : {'label': 'Locomotoras (LOC)',        'servicios': ['LD', 'PERIFERICO', 'AMBA']},
+        'CCRR': {'label': 'Coches Remolcados (CCRR)', 'servicios': ['LD', 'PERIFERICO', 'AMBA']},
         'CCEE': {'label': 'Coches Eléctricos (CCEE)', 'servicios': []},
-        'CCMM': {'label': 'Coche Motor (CCMM)',       'servicios': ['LD', 'PERIFERICO']},
+        'CCMM': {'label': 'Coche Motor (CCMM)',       'servicios': ['PERIFERICO', 'AMBA']},
     }
 
     def top10_unidad(df_base):
@@ -561,7 +561,7 @@ with tab1:
         st.markdown(f"##### {cfg['label']}")
         df_mr = df[df['MR'] == 'LOC']
         if df_mr.empty:
-            st.caption("Sin datos para este tipo.")
+            st.caption("NO SE INSPECCIONÓ ESTE TIPO DE MR")
         else:
             servicios_disp = sorted(df_mr['Servicio'].dropna().unique().tolist())
             sel_srv = st.multiselect("Servicio", servicios_disp,
@@ -574,7 +574,7 @@ with tab1:
         st.markdown(f"##### {cfg['label']}")
         df_mr = df[df['MR'] == 'CCRR']
         if df_mr.empty:
-            st.caption("Sin datos para este tipo.")
+            st.caption("NO SE INSPECCIONÓ ESTE TIPO DE MR")
         else:
             servicios_disp = sorted(df_mr['Servicio'].dropna().unique().tolist())
             sel_srv = st.multiselect("Servicio", servicios_disp,
@@ -590,7 +590,7 @@ with tab1:
         st.markdown(f"##### {cfg['label']}")
         df_mr = df[df['MR'] == 'CCEE']
         if df_mr.empty:
-            st.caption("Sin datos para este tipo.")
+            st.caption("NO SE INSPECCIONÓ ESTE TIPO DE MR")
         else:
             # CCEE solo tiene AMBA, no necesita filtro
             st.dataframe(top10_unidad(df_mr), use_container_width=True, hide_index=True)
@@ -600,7 +600,7 @@ with tab1:
         st.markdown(f"##### {cfg['label']}")
         df_mr = df[df['MR'] == 'CCMM']
         if df_mr.empty:
-            st.caption("Sin datos para este tipo.")
+            st.caption("NO SE INSPECCIONÓ ESTE TIPO DE MR")
         else:
             servicios_disp = sorted(df_mr['Servicio'].dropna().unique().tolist())
             sel_srv = st.multiselect("Servicio", servicios_disp,
@@ -616,7 +616,7 @@ with tab2:
     # Torta criticidad
     with row1_l:
         st.markdown("#### Distribución por Criticidad")
-        crit_counts = df['Criticidad'].value_counts()
+        crit_counts = df['CritAmpliado'].value_counts()
         fig_pie = go.Figure(go.Pie(
             labels=crit_counts.index,
             values=crit_counts.values,
@@ -722,7 +722,7 @@ with tab3:
 
         meses_disponibles   = sorted(df_out['Mes'].dropna().unique().tolist())
         sistemas_disponibles = sorted(df_out['SistemaUnidad'].dropna().unique().tolist())
-        criticas_opciones   = sorted(df_out['Criticidad'].dropna().unique().tolist())
+        criticas_opciones   = sorted(df_out['CritAmpliado'].dropna().unique().tolist())
 
         with fc1:
             sel_mes = st.multiselect("Mes", meses_disponibles, default=meses_disponibles,
