@@ -150,10 +150,10 @@ MONTH_ORDER = [
 ]
 
 SISTEMA_LABELS = {
-    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Choque',
-    'PM':'Par Montado','EBC':'Elementos bajo coche','NSF':'Sistema de freno Neumatico',
-    'MSF':'Sistema de freno Mecanico','DSM':'Sala de motor Diesel','CAB':'Cabina',
-    'ATS':'ATS','DOC':'Documentación','NGN':'Ninguna obsevación en el informe'
+    'BG':'Bogie','SLN':'Salón','EXT':'Exterior','TYC':'Tracción y Comando',
+    'PM':'Partes Mecánicas','EBC':'Equipo de a Bordo','NSF':'Neumo-freno (S/F)',
+    'MSF':'Neumo-freno (C/F)','DSM':'Suspensión','CAB':'Cabina',
+    'ATS':'ATS','DOC':'Documentación','NGN':'Motor'
 }
 
 def parse_valor(v):
@@ -507,8 +507,8 @@ with tab1:
 
     with col_a:
         st.markdown("#### Criticidad")
-        crit_df = df['CritAmpliado'].value_counts().reset_index()
-        crit_df.columns = ['CritAmpliado','Cantidad']
+        crit_df = df['Criticidad'].value_counts().reset_index()
+        crit_df.columns = ['Criticidad','Cantidad']
         crit_df['Porcentaje'] = (crit_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(crit_df, use_container_width=True, hide_index=True)
 
@@ -526,16 +526,87 @@ with tab1:
         sist_df['%'] = (sist_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(sist_df[['Código','Sistema','Cantidad','%']], use_container_width=True, hide_index=True)
 
-        st.markdown("#### Top 20 Vehículos con más observaciones")
-        veh_df = df['Vehiculo'].value_counts().head(20).reset_index()
-        veh_df.columns = ['Vehículo','Observaciones']
-        st.dataframe(veh_df, use_container_width=True, hide_index=True)
-
     st.markdown("#### Top 15 Tipos de Falla")
     top15 = df['DescAgrupada'].value_counts().head(15).reset_index()
     top15.columns = ['Descripción Agrupada','Cantidad']
     top15['% del total'] = (top15['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
     st.dataframe(top15, use_container_width=True, hide_index=True)
+
+    # ── TOP 10 POR TIPO DE MR ──
+    st.markdown("---")
+    st.markdown("#### Top 10 por Tipo de Material Rodante")
+
+    MR_CONFIG = {
+        'LOC' : {'label': 'Locomotoras (LOC)',        'servicios': ['LD', 'PERIFERICO']},
+        'CCRR': {'label': 'Coches Remolcados (CCRR)', 'servicios': ['LD', 'PERIFERICO']},
+        'CCEE': {'label': 'Coches Eléctricos (CCEE)', 'servicios': []},
+        'CCMM': {'label': 'Coche Motor (CCMM)',       'servicios': ['LD', 'PERIFERICO']},
+    }
+
+    def top10_unidad(df_base):
+        """Aplica regla Modulo > Vehiculo y devuelve top 10."""
+        df_base = df_base.copy()
+        df_base['_unidad'] = df_base['Modulo'].apply(
+            lambda x: None if (x is None or str(x).strip() in ('', '0', 'nan')) else str(x).strip()
+        ).fillna(df_base['Vehiculo'].astype(str).str.strip())
+        result = df_base['_unidad'].value_counts().head(10).reset_index()
+        result.columns = ['Unidad', 'Observaciones']
+        return result
+
+    # Fila 1: LOC y CCRR
+    row_t1, row_t2 = st.columns(2)
+
+    with row_t1:
+        cfg = MR_CONFIG['LOC']
+        st.markdown(f"##### {cfg['label']}")
+        df_mr = df[df['MR'] == 'LOC']
+        if df_mr.empty:
+            st.caption("Sin datos para este tipo.")
+        else:
+            servicios_disp = sorted(df_mr['Servicio'].dropna().unique().tolist())
+            sel_srv = st.multiselect("Servicio", servicios_disp,
+                                     default=servicios_disp, key="srv_loc")
+            df_fil = df_mr[df_mr['Servicio'].isin(sel_srv)] if sel_srv else df_mr
+            st.dataframe(top10_unidad(df_fil), use_container_width=True, hide_index=True)
+
+    with row_t2:
+        cfg = MR_CONFIG['CCRR']
+        st.markdown(f"##### {cfg['label']}")
+        df_mr = df[df['MR'] == 'CCRR']
+        if df_mr.empty:
+            st.caption("Sin datos para este tipo.")
+        else:
+            servicios_disp = sorted(df_mr['Servicio'].dropna().unique().tolist())
+            sel_srv = st.multiselect("Servicio", servicios_disp,
+                                     default=servicios_disp, key="srv_ccrr")
+            df_fil = df_mr[df_mr['Servicio'].isin(sel_srv)] if sel_srv else df_mr
+            st.dataframe(top10_unidad(df_fil), use_container_width=True, hide_index=True)
+
+    # Fila 2: CCEE y CCMM
+    row_t3, row_t4 = st.columns(2)
+
+    with row_t3:
+        cfg = MR_CONFIG['CCEE']
+        st.markdown(f"##### {cfg['label']}")
+        df_mr = df[df['MR'] == 'CCEE']
+        if df_mr.empty:
+            st.caption("Sin datos para este tipo.")
+        else:
+            # CCEE solo tiene AMBA, no necesita filtro
+            st.dataframe(top10_unidad(df_mr), use_container_width=True, hide_index=True)
+
+    with row_t4:
+        cfg = MR_CONFIG['CCMM']
+        st.markdown(f"##### {cfg['label']}")
+        df_mr = df[df['MR'] == 'CCMM']
+        if df_mr.empty:
+            st.caption("Sin datos para este tipo.")
+        else:
+            servicios_disp = sorted(df_mr['Servicio'].dropna().unique().tolist())
+            sel_srv = st.multiselect("Servicio", servicios_disp,
+                                     default=servicios_disp, key="srv_ccmm")
+            df_fil = df_mr[df_mr['Servicio'].isin(sel_srv)] if sel_srv else df_mr
+            st.dataframe(top10_unidad(df_fil), use_container_width=True, hide_index=True)
 
 
 # ── TAB 2: GRÁFICOS ──
@@ -545,7 +616,7 @@ with tab2:
     # Torta criticidad
     with row1_l:
         st.markdown("#### Distribución por Criticidad")
-        crit_counts = df['CritAmpliado'].value_counts()
+        crit_counts = df['Criticidad'].value_counts()
         fig_pie = go.Figure(go.Pie(
             labels=crit_counts.index,
             values=crit_counts.values,
