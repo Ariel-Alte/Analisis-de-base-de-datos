@@ -293,7 +293,7 @@ def cargar_y_analizar(file_bytes):
 
     # Normalizar columna Mes (unificar mayusculas/minusculas)
     if 'Mes' in df.columns:
-        df['Mes'] = df['Mes'].astype(str).str.strip().str.capitalize()
+        df['Mes'] = df['Mes'].astype(str).str.strip().str.upper()
 
     # ── 7. Calcular desvios (solo si hay columnas de referencia) ──
     if tiene_refs and all(c in df.columns for c in ['RefMin','RefMax','Relevado1','Relevado2']):
