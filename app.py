@@ -663,7 +663,9 @@ with tab2:
         sist_counts.columns = ['Sistema','Cantidad']
         sist_counts['Label'] = sist_counts['Sistema'].map(SISTEMA_LABELS).fillna(sist_counts['Sistema'])
         fig_sist = px.bar(sist_counts, x='Cantidad', y='Label', orientation='h',
-                          color='Cantidad', color_continuous_scale='Blues')
+                          color='Cantidad', color_continuous_scale='Blues', 
+                          text='Cantidad')
+        fig_sist.update_traces(textposition='outside', textfont=dict(color='#b0bec5', size=12))')
         fig_sist.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=300,
                                xaxis=AXIS_STYLE,
                                yaxis=dict(autorange='reversed', **AXIS_STYLE),
