@@ -654,21 +654,23 @@ with tab2:
         fig_pie.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=300,
                               legend=dict(orientation='h', y=-0.1),
                               xaxis=AXIS_STYLE, yaxis=AXIS_STYLE)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, use_container_width=True, key="chart_pie")
 
-    # Top fallas barras
-    st.markdown("#### Top 15 Tipos de Falla")
-    top15_plot = df['DescAgrupada'].value_counts().head(15).reset_index()
-    top15_plot.columns = ['Falla','Cantidad']
-    fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
-                     color='Cantidad', color_continuous_scale='Blues_r',
-                     text='Cantidad')
-    fig_top.update_traces(textposition='outside', textfont=dict(color='#b0bec5', size=12))
-    fig_top.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,r=80,l=10),
-                          xaxis=dict(range=[0, top15_plot['Cantidad'].max() * 1.15], **AXIS_STYLE),
-                          yaxis=dict(autorange='reversed', **AXIS_STYLE),
-                          coloraxis_showscale=False)
-    st.plotly_chart(fig_top, use_container_width=True)
+    # Barras sistemas
+    with row1_r:
+        st.markdown("#### Observaciones por Sistema")
+        sist_counts = df['SistemaUnidad'].value_counts().reset_index()
+        sist_counts.columns = ['Sistema','Cantidad']
+        sist_counts['Label'] = sist_counts['Sistema'].map(SISTEMA_LABELS).fillna(sist_counts['Sistema'])
+        fig_sist = px.bar(sist_counts, x='Cantidad', y='Label', orientation='h',
+                          color='Cantidad', color_continuous_scale='Blues',
+                          text='Cantidad')
+        fig_sist.update_traces(textposition='outside', textfont=dict(color='#b0bec5', size=12))
+        fig_sist.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,r=80,l=10), height=300,
+                               xaxis=dict(range=[0, sist_counts['Cantidad'].max() * 1.15], **AXIS_STYLE),
+                               yaxis=dict(autorange='reversed', **AXIS_STYLE),
+                               coloraxis_showscale=False)
+        st.plotly_chart(fig_sist, use_container_width=True, key="chart_sist")
 
     # Evolución mensual
     st.markdown("#### Evolución Mensual de Observaciones")
@@ -690,7 +692,7 @@ with tab2:
         ))
         fig_line.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=280,
                                xaxis=AXIS_STYLE, yaxis=AXIS_STYLE)
-        st.plotly_chart(fig_line, use_container_width=True)
+        st.plotly_chart(fig_line, use_container_width=True, key="chart_line")
 
     # Top fallas barras
     st.markdown("#### Top 15 Tipos de Falla")
@@ -704,16 +706,7 @@ with tab2:
                           xaxis=dict(range=[0, top15_plot['Cantidad'].max() * 1.15], **AXIS_STYLE),
                           yaxis=dict(autorange='reversed', **AXIS_STYLE),
                           coloraxis_showscale=False)
-    st.plotly_chart(fig_top, use_container_width=True)
-    
-    #top15_plot.columns = ['Falla','Cantidad']
-    #fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
-    #                 color='Cantidad', color_continuous_scale='Blues_r')
-    #fig_top.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,l=10,r=10),
-    #                      xaxis=AXIS_STYLE,
-    #                      yaxis=dict(autorange='reversed', **AXIS_STYLE),
-    #                      coloraxis_showscale=False)
-    #st.plotly_chart(fig_top, use_container_width=True)
+    st.plotly_chart(fig_top, use_container_width=True, key="chart_top")
 
     # Desvíos por categoría
     if not df_out.empty:
@@ -743,7 +736,7 @@ with tab2:
                         gridcolor='#1e2a3a', linecolor='#2a3a50'),
             legend=dict(orientation='h', y=1.05)
         )
-        st.plotly_chart(fig_desv, use_container_width=True)
+        st.plotly_chart(fig_desv, use_container_width=True, key="chart_desv")
 
 
 # ── TAB 3: DESVÍOS DETALLADOS ──
