@@ -145,7 +145,7 @@ st.markdown("""
 # ─────────────────────────────────────────────
 
 MONTH_ORDER = [
-    'Enero','Febrero','Marzo','Abril','MAYO','JUNIO',
+    'ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO',
     'JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'
 ]
 
@@ -694,15 +694,26 @@ with tab2:
 
     # Top fallas barras
     st.markdown("#### Top 15 Tipos de Falla")
-    top15_plot = df['DescAgrupada'].value_counts().head(15).reset_index()
+    top15_plot = df['Descripcion'].value_counts().head(15).reset_index()
     top15_plot.columns = ['Falla','Cantidad']
     fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
-                     color='Cantidad', color_continuous_scale='Blues_r')
-    fig_top.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,l=10,r=10),
-                          xaxis=AXIS_STYLE,
+                     color='Cantidad', color_continuous_scale='Blues_r',
+                     text='Cantidad')
+    fig_top.update_traces(textposition='outside', textfont=dict(color='#b0bec5', size=12))
+    fig_top.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,r=80,l=10),
+                          xaxis=dict(range=[0, top15_plot['Cantidad'].max() * 1.15], **AXIS_STYLE),
                           yaxis=dict(autorange='reversed', **AXIS_STYLE),
                           coloraxis_showscale=False)
     st.plotly_chart(fig_top, use_container_width=True)
+    
+    #top15_plot.columns = ['Falla','Cantidad']
+    #fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
+    #                 color='Cantidad', color_continuous_scale='Blues_r')
+    #fig_top.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,l=10,r=10),
+    #                      xaxis=AXIS_STYLE,
+    #                      yaxis=dict(autorange='reversed', **AXIS_STYLE),
+    #                      coloraxis_showscale=False)
+    #st.plotly_chart(fig_top, use_container_width=True)
 
     # Desvíos por categoría
     if not df_out.empty:
