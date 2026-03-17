@@ -694,7 +694,7 @@ with tab2:
 
     # Top fallas barras
     st.markdown("#### Top 15 Tipos de Falla")
-    top15_plot = df['Descripcion'].value_counts().head(15).reset_index()
+    top15_plot = df['DescAgrupada'].value_counts().head(15).reset_index()
     top15_plot.columns = ['Falla','Cantidad']
     fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
                      color='Cantidad', color_continuous_scale='Blues_r',
