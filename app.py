@@ -1463,7 +1463,7 @@ with tab6:
     with hdr_col2:
         logo_file    = st.file_uploader("Banner / Logo (JPG o PNG)", type=["jpg","jpeg","png"],
                                          help="Imagen que aparece en el encabezado de todas las páginas")
-        hdr_subger   = st.text_input("Subgerencia", value="Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)")
+        hdr_subger   = st.text_input("Subgerencia", value="Programación y Seguimiento de Mantenimiento")
 
     st.markdown("---")
 
