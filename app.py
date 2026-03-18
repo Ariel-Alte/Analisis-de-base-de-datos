@@ -353,7 +353,7 @@ def generar_word(df, df_out, config=None):
     hdr_codigo  = config.get("codigo",  "") or ""
     hdr_version = config.get("version", "v1.0") or "v1.0"
     hdr_linea   = config.get("linea",   "") or ""
-    hdr_subger  = config.get("subger",  "Programación y Seguimiento de Mantenimiento") or ""
+    hdr_subger  = config.get("subger",  "Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)") or ""
     logo_bytes  = config.get("logo",    None)
 
     doc = Document()
@@ -446,7 +446,7 @@ def generar_word(df, df_out, config=None):
     W_LEFT  = int(PAGE_W * 0.65)
     W_RIGHT = PAGE_W - W_LEFT
 
-    htbl = header.add_table(rows=1, cols=2, width=Mm(210))
+    htbl = header.add_table(rows=1, cols=2, width=Mm(180))
     htbl.style = "Table Grid"
     remove_borders(htbl)
     set_tbl_w(htbl, PAGE_W)
@@ -455,8 +455,8 @@ def generar_word(df, df_out, config=None):
     tr = htbl.rows[0]._tr
     trPr = tr.get_or_add_trPr()
     trH = OxmlElement("w:trHeight")
-    trH.set(qn("w:val"),    str(int(3 * 567)))
-    trH.set(qn("w:hRule"),  "exact")
+    trH.set(qn("w:val"),    str(int(2.5 * 567)))
+    trH.set(qn("w:hRule"),  "atLeast")
     trPr.append(trH)
 
     c_left  = htbl.cell(0, 0)
@@ -473,7 +473,7 @@ def generar_word(df, df_out, config=None):
         run_img.add_picture(io.BytesIO(logo_bytes), height=Cm(2.2))
     else:
         set_shd(c_left, "1F3864")
-        cell_text(c_left, "TRENES ARGENTINOS OPERACIONES",
+        cell_text(c_left, "TRENES ARGENTINOS — PISE",
                   bold=True, size=13, color="FFFFFF",
                   align=WD_ALIGN_PARAGRAPH.CENTER)
 
@@ -497,6 +497,14 @@ def generar_word(df, df_out, config=None):
     set_tbl_w(sub, W_RIGHT)
     sub_w = W_RIGHT // 2
 
+    def set_sub_row_height(row, height_cm):
+        tr   = row._tr
+        trPr = tr.get_or_add_trPr()
+        trH  = OxmlElement("w:trHeight")
+        trH.set(qn("w:val"),    str(int(height_cm * 567)))
+        trH.set(qn("w:hRule"),  "exact")
+        trPr.append(trH)
+
     for i, (lbl, val) in enumerate(fields):
         last = (i == len(fields) - 1)
         if last:
@@ -507,6 +515,7 @@ def generar_word(df, df_out, config=None):
             cell_text(merged, f"{lbl} {val}",
                       bold=False, size=7, color="1F3864",
                       align=WD_ALIGN_PARAGRAPH.LEFT, italic=True)
+            set_sub_row_height(sub.rows[i], 0.55)  # subgerencia un poco más alta
         else:
             lc = sub.cell(i, 0)
             vc = sub.cell(i, 1)
@@ -516,6 +525,7 @@ def generar_word(df, df_out, config=None):
             set_shd(vc, "EBF3FB")
             cell_text(lc, lbl, bold=True,  size=8, color="1F3864", align=WD_ALIGN_PARAGRAPH.LEFT)
             cell_text(vc, val, bold=False, size=8, color="333333", align=WD_ALIGN_PARAGRAPH.LEFT)
+            set_sub_row_height(sub.rows[i], 0.42)  # filas de datos compactas
 
     # ── PIE DE PÁGINA ──
     footer = section.footer
@@ -1453,7 +1463,7 @@ with tab6:
     with hdr_col2:
         logo_file    = st.file_uploader("Banner / Logo (JPG o PNG)", type=["jpg","jpeg","png"],
                                          help="Imagen que aparece en el encabezado de todas las páginas")
-        hdr_subger   = st.text_input("Subgerencia", value="Programación y Seguimiento de Mantenimiento")
+        hdr_subger   = st.text_input("Subgerencia", value="Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)")
 
     st.markdown("---")
 
