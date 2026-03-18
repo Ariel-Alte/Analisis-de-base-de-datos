@@ -479,14 +479,9 @@ def generar_word(df, df_out, config=None):
 
     # Celda derecha — sub-tabla con campos
     set_shd(c_right, "EBF3FB")
-    # Vaciar celda
+    # Vaciar párrafos por defecto de la celda
     for p in list(c_right.paragraphs):
         p._element.getparent().remove(p._element)
-
-    sub = c_right.add_table(rows=4, cols=2)
-    remove_borders(sub)
-    set_tbl_w(sub, W_RIGHT)
-    sub_w = W_RIGHT // 2
 
     fields = [
         ("Código:",      hdr_codigo  or "___________"),
@@ -495,8 +490,9 @@ def generar_word(df, df_out, config=None):
         ("Línea:",       hdr_linea   or "___________"),
         ("Subgerencia:", hdr_subger),
     ]
-    # Última fila (subgerencia) ocupa ambas columnas
-    sub = c_right.add_table(rows=len(fields), cols=2)
+
+    # Una sola sub-tabla con 5 filas
+    sub   = c_right.add_table(rows=len(fields), cols=2)
     remove_borders(sub)
     set_tbl_w(sub, W_RIGHT)
     sub_w = W_RIGHT // 2
@@ -504,7 +500,7 @@ def generar_word(df, df_out, config=None):
     for i, (lbl, val) in enumerate(fields):
         last = (i == len(fields) - 1)
         if last:
-            # Fusionar ambas columnas para la subgerencia
+            # Última fila: subgerencia fusionada en ambas columnas
             merged = sub.cell(i, 0).merge(sub.cell(i, 1))
             set_cell_w(merged, W_RIGHT)
             set_shd(merged, "D5E8F0")
@@ -512,7 +508,8 @@ def generar_word(df, df_out, config=None):
                       bold=False, size=7, color="1F3864",
                       align=WD_ALIGN_PARAGRAPH.LEFT, italic=True)
         else:
-            lc, vc = sub.cell(i, 0), sub.cell(i, 1)
+            lc = sub.cell(i, 0)
+            vc = sub.cell(i, 1)
             set_cell_w(lc, sub_w)
             set_cell_w(vc, sub_w)
             set_shd(lc, "EBF3FB")
