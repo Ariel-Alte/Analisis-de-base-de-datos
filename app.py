@@ -1249,66 +1249,66 @@ with tab4:
                 st.caption("Sin datos")
                 continue
 
-                # Contar por sistema y calcular % acumulado
-                conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
-                conteo.columns = ['Sistema', 'Cantidad']
-                conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
-                conteo['%_acum'] = (conteo['Cantidad'].cumsum() / conteo['Cantidad'].sum() * 100).round(1)
+            # Contar por sistema y calcular % acumulado
+            conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
+            conteo.columns = ['Sistema', 'Cantidad']
+            conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
+            conteo['%_acum'] = (conteo['Cantidad'].cumsum() / conteo['Cantidad'].sum() * 100).round(1)
 
-                color = CLASIF_COLORS.get(cat, '#4fc3f7')
+            color = CLASIF_COLORS.get(cat, '#4fc3f7')
 
-                fig_p = go.Figure()
+            fig_p = go.Figure()
 
-                # Barras
-                fig_p.add_trace(go.Bar(
-                    x=conteo['Label'],
-                    y=conteo['Cantidad'],
-                    name='Cantidad',
-                    marker_color=color,
-                    text=conteo['Cantidad'],
-                    textposition='outside',
-                    textfont=dict(color='#e8eaf0', size=11),
-                    yaxis='y'
-                ))
+            # Barras
+            fig_p.add_trace(go.Bar(
+                x=conteo['Label'],
+                y=conteo['Cantidad'],
+                name='Cantidad',
+                marker_color=color,
+                text=conteo['Cantidad'],
+                textposition='outside',
+                textfont=dict(color='#e8eaf0', size=11),
+                yaxis='y'
+            ))
 
-                # Línea acumulada
-                fig_p.add_trace(go.Scatter(
-                    x=conteo['Label'],
-                    y=conteo['%_acum'],
-                    name='% Acum.',
-                    mode='lines+markers+text',
-                    line=dict(color='#ffffff', width=2),
-                    marker=dict(size=6, color='#ffffff'),
-                    text=[f"{v}%" for v in conteo['%_acum']],
-                    textposition='top center',
-                    textfont=dict(color='#ffffff', size=10),
-                    yaxis='y2'
-                ))
+            # Línea acumulada
+            fig_p.add_trace(go.Scatter(
+                x=conteo['Label'],
+                y=conteo['%_acum'],
+                name='% Acum.',
+                mode='lines+markers+text',
+                line=dict(color='#ffffff', width=2),
+                marker=dict(size=6, color='#ffffff'),
+                text=[f"{v}%" for v in conteo['%_acum']],
+                textposition='top center',
+                textfont=dict(color='#ffffff', size=10),
+                yaxis='y2'
+            ))
 
-                # Línea de referencia 80%
-                fig_p.add_hline(
-                    y=80, line_dash='dash',
-                    line_color='#ffa726', line_width=1,
-                    annotation_text='80%',
-                    annotation_font_color='#ffa726',
-                    yref='y2'
-                )
+            # Línea de referencia 80%
+            fig_p.add_hline(
+                y=80, line_dash='dash',
+                line_color='#ffa726', line_width=1,
+                annotation_text='80%',
+                annotation_font_color='#ffa726',
+                yref='y2'
+            )
 
-                fig_p.update_layout(
-                    **PLOTLY_THEME,
-                    height=350,
-                    margin=dict(t=30, b=60, l=10, r=50),
-                    showlegend=False,
-                    xaxis=dict(tickangle=-35, **AXIS_STYLE),
-                    yaxis=dict(title='Cantidad', **AXIS_STYLE),
-                    yaxis2=dict(
-                        title='% Acumulado',
-                        overlaying='y', side='right',
-                        range=[0, 110],
-                        gridcolor='#1e2a3a', linecolor='#2a3a50'
-                    ),
-                )
-                st.plotly_chart(fig_p, use_container_width=True, key=f"pareto_{i}")
+            fig_p.update_layout(
+                **PLOTLY_THEME,
+                height=350,
+                margin=dict(t=30, b=60, l=10, r=50),
+                showlegend=False,
+                xaxis=dict(tickangle=-35, **AXIS_STYLE),
+                yaxis=dict(title='Cantidad', **AXIS_STYLE),
+                yaxis2=dict(
+                    title='% Acumulado',
+                    overlaying='y', side='right',
+                    range=[0, 110],
+                    gridcolor='#1e2a3a', linecolor='#2a3a50'
+                ),
+            )
+            st.plotly_chart(fig_p, use_container_width=True, key=f"pareto_{i}")
 
         # ── Últimas observaciones de rechazo ──
         st.markdown("---")
