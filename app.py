@@ -1239,15 +1239,15 @@ with tab4:
         }
 
         categorias = ['Fuera de rango', 'Ausencia de elementos', 'Mal estado']
-        cols_pareto = st.columns(3)
+        #cols_pareto = st.columns(3)
 
         for i, cat in enumerate(categorias):
             df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat.lower()].copy()
-            with cols_pareto[i]:
-                st.markdown(f"##### {cat}")
-                if df_cat.empty:
-                    st.caption("Sin datos")
-                    continue
+            #with cols_pareto[i]:
+            st.markdown(f"##### {cat}")
+            if df_cat.empty:
+                st.caption("Sin datos")
+                continue
 
                 # Contar por sistema y calcular % acumulado
                 conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
