@@ -455,7 +455,7 @@ def generar_word(df, df_out, config=None):
     tr = htbl.rows[0]._tr
     trPr = tr.get_or_add_trPr()
     trH = OxmlElement("w:trHeight")
-    trH.set(qn("w:val"),    str(int(1 * 567)))
+    trH.set(qn("w:val"),    str(int(3 * 567)))
     trH.set(qn("w:hRule"),  "exact")
     trPr.append(trH)
 
