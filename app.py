@@ -200,7 +200,7 @@ def cargar_y_analizar(file_bytes):
       Formato B: un solo bloque, sin columnas de referencia (ej: Roca)
     """
     import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
 
     # ── 1. Detectar fila de headers ──
@@ -295,6 +295,12 @@ def cargar_y_analizar(file_bytes):
     # Normalizar columna Mes (unificar mayusculas/minusculas)
     if 'Mes' in df.columns:
         df['Mes'] = df['Mes'].astype(str).str.strip().str.upper()
+
+    # Limpiar columna Clasificacion: eliminar fórmulas Excel no calculadas
+    if 'Clasificacion' in df.columns:
+        df['Clasificacion'] = df['Clasificacion'].apply(
+            lambda x: None if (pd.isna(x) or str(x).strip().startswith('=')) else str(x).strip()
+        )
 
     # ── 7. Calcular desvios (solo si hay columnas de referencia) ──
     if tiene_refs and all(c in df.columns for c in ['RefMin','RefMax','Relevado1','Relevado2']):
@@ -779,26 +785,69 @@ with tab2:
                                coloraxis_showscale=False)
         st.plotly_chart(fig_sist, use_container_width=True, key="chart_sist")
 
-    # Evolución mensual
+    # Evolución mensual + ratio obs/vehículo
     st.markdown("#### Evolución Mensual de Observaciones")
     monthly = []
     for m in MONTH_ORDER:
-        cnt = df[df['Mes'].str.upper() == m].shape[0]
+        df_m = df[df['Mes'].str.upper() == m]
+        cnt  = len(df_m)
+        vehs = df_m['Vehiculo'].dropna().nunique()
         if cnt > 0:
-            monthly.append({'Mes': m, 'Observaciones': cnt})
+            monthly.append({
+                'Mes': m,
+                'Observaciones': cnt,
+                'Vehículos': vehs,
+                'Ratio Obs/Veh': round(cnt / vehs, 2) if vehs > 0 else 0
+            })
     monthly_df = pd.DataFrame(monthly)
     if not monthly_df.empty:
         fig_line = go.Figure()
-        fig_line.add_trace(go.Scatter(
+
+        # Barras de observaciones
+        fig_line.add_trace(go.Bar(
             x=monthly_df['Mes'], y=monthly_df['Observaciones'],
-            mode='lines+markers',
-            line=dict(color='#4fc3f7', width=3),
-            marker=dict(size=8, color='#4fc3f7', line=dict(color='white', width=2)),
-            fill='tozeroy',
-            fillcolor='rgba(79,195,247,0.1)'
+            name='Observaciones',
+            marker_color='rgba(79,195,247,0.3)',
+            text=monthly_df['Observaciones'],
+            textposition='outside',
+            textfont=dict(color='#4fc3f7', size=11),
+            yaxis='y'
         ))
-        fig_line.update_layout(**PLOTLY_THEME, margin=dict(t=10,b=10,l=10,r=10), height=280,
-                               xaxis=AXIS_STYLE, yaxis=AXIS_STYLE)
+
+        # Línea de vehículos inspeccionados
+        fig_line.add_trace(go.Scatter(
+            x=monthly_df['Mes'], y=monthly_df['Vehículos'],
+            name='Vehículos inspeccionados',
+            mode='lines+markers',
+            line=dict(color='#66bb6a', width=2, dash='dot'),
+            marker=dict(size=7, color='#66bb6a'),
+            yaxis='y'
+        ))
+
+        # Línea ratio obs/vehículo — eje secundario
+        fig_line.add_trace(go.Scatter(
+            x=monthly_df['Mes'], y=monthly_df['Ratio Obs/Veh'],
+            name='Ratio Obs/Veh',
+            mode='lines+markers+text',
+            line=dict(color='#ffa726', width=2),
+            marker=dict(size=8, color='#ffa726'),
+            text=monthly_df['Ratio Obs/Veh'].astype(str),
+            textposition='top center',
+            textfont=dict(color='#ffa726', size=10),
+            yaxis='y2'
+        ))
+
+        fig_line.update_layout(
+            **PLOTLY_THEME,
+            height=360,
+            margin=dict(t=20, b=20, l=10, r=60),
+            xaxis=AXIS_STYLE,
+            yaxis=dict(title='Cantidad', **AXIS_STYLE),
+            yaxis2=dict(title='Ratio Obs/Veh', overlaying='y', side='right',
+                        gridcolor='#1e2a3a', linecolor='#2a3a50'),
+            legend=dict(orientation='h', y=1.08),
+            barmode='overlay'
+        )
         st.plotly_chart(fig_line, use_container_width=True, key="chart_line")
 
     # Top fallas barras
@@ -816,32 +865,78 @@ with tab2:
     st.plotly_chart(fig_top, use_container_width=True, key="chart_top")
 
     # Desvíos por categoría
-    if not df_out.empty:
+    if not df_out.empty and 'Desviacion' in df_out.columns:
         st.markdown("#### Desvíos: Distribución por Categoría")
+        st.caption("Barras = cantidad de casos · Líneas = desvío máx/prom/mín sobre eje derecho (mismas unidades que el parámetro)")
         desv_plot = df_out.groupby('DescAgrupada').agg(
-            Cantidad=('Desviacion','count'),
-            Desv_Max=('Desviacion', lambda x: x.abs().max())
+            Cantidad  =('Desviacion', 'count'),
+            Desv_Max  =('Desviacion', lambda x: round(x.abs().max(),  2)),
+            Desv_Prom =('Desviacion', lambda x: round(x.abs().mean(), 2)),
+            Desv_Min  =('Desviacion', lambda x: round(x.abs().min(),  2)),
         ).reset_index().sort_values('Cantidad', ascending=False)
 
+        # Etiquetas combinadas para tooltips
+        desv_plot['Etiqueta'] = desv_plot.apply(
+            lambda r: f"Máx: {r['Desv_Max']}  |  Prom: {r['Desv_Prom']}  |  Mín: {r['Desv_Min']}", axis=1
+        )
+
         fig_desv = go.Figure()
+
+        # Barras cantidad
         fig_desv.add_trace(go.Bar(
             x=desv_plot['DescAgrupada'], y=desv_plot['Cantidad'],
-            name='Cantidad', marker_color='#4fc3f7', yaxis='y'
+            name='Cantidad de casos',
+            marker_color='#4fc3f7',
+            text=desv_plot['Cantidad'],
+            textposition='outside',
+            textfont=dict(color='#4fc3f7', size=11),
+            yaxis='y'
         ))
+
+        # Línea desvío máximo
         fig_desv.add_trace(go.Scatter(
             x=desv_plot['DescAgrupada'], y=desv_plot['Desv_Max'],
-            name='Desvío Máx.', mode='lines+markers',
-            line=dict(color='#ef5350', width=2), marker=dict(size=7),
+            name='Desvío Máx.',
+            mode='lines+markers+text',
+            line=dict(color='#ef5350', width=2),
+            marker=dict(size=8, color='#ef5350'),
+            text=desv_plot['Desv_Max'].astype(str),
+            textposition='top center',
+            textfont=dict(color='#ef5350', size=10),
             yaxis='y2'
         ))
+
+        # Línea desvío promedio
+        fig_desv.add_trace(go.Scatter(
+            x=desv_plot['DescAgrupada'], y=desv_plot['Desv_Prom'],
+            name='Desvío Prom.',
+            mode='lines+markers+text',
+            line=dict(color='#ffa726', width=2, dash='dot'),
+            marker=dict(size=7, color='#ffa726'),
+            text=desv_plot['Desv_Prom'].astype(str),
+            textposition='bottom center',
+            textfont=dict(color='#ffa726', size=10),
+            yaxis='y2'
+        ))
+
+        # Línea desvío mínimo
+        fig_desv.add_trace(go.Scatter(
+            x=desv_plot['DescAgrupada'], y=desv_plot['Desv_Min'],
+            name='Desvío Mín.',
+            mode='lines+markers',
+            line=dict(color='#66bb6a', width=1, dash='dash'),
+            marker=dict(size=6, color='#66bb6a'),
+            yaxis='y2'
+        ))
+
         fig_desv.update_layout(
-            **PLOTLY_THEME, height=380, barmode='group',
-            margin=dict(t=10,b=80,l=10,r=60),
+            **PLOTLY_THEME, height=440, barmode='group',
+            margin=dict(t=20, b=100, l=10, r=70),
             xaxis=dict(tickangle=-35, **AXIS_STYLE),
-            yaxis=dict(title='Cantidad', **AXIS_STYLE),
-            yaxis2=dict(title='Desvío Máx.', overlaying='y', side='right',
+            yaxis=dict(title='Cantidad de casos', **AXIS_STYLE),
+            yaxis2=dict(title='Desvío (unidades del parámetro)', overlaying='y', side='right',
                         gridcolor='#1e2a3a', linecolor='#2a3a50'),
-            legend=dict(orientation='h', y=1.05)
+            legend=dict(orientation='h', y=1.06)
         )
         st.plotly_chart(fig_desv, use_container_width=True, key="chart_desv")
 
@@ -856,26 +951,45 @@ with tab3:
         )
     else:
         st.markdown("#### Filtros")
-        fc1, fc2, fc3 = st.columns(3)
+        fc1, fc2, fc3, fc4, fc5 = st.columns(5)
 
-        meses_disponibles   = sorted(df_out['Mes'].dropna().unique().tolist())
+        meses_disponibles    = sorted(df_out['Mes'].dropna().unique().tolist())
         sistemas_disponibles = sorted(df_out['SistemaUnidad'].dropna().unique().tolist())
-        criticas_opciones   = sorted(df_out['Criticidad'].dropna().unique().tolist())
+        criticas_opciones    = sorted(df_out['Criticidad'].dropna().unique().tolist())
+
+        # Unidades (Modulo > Vehiculo)
+        df_out['_unidad'] = df_out['Modulo'].apply(
+            lambda x: None if (x is None or str(x).strip() in ('', '0', 'nan')) else str(x).strip()
+        ).fillna(df_out['Vehiculo'].astype(str).str.strip())
+        unidades_disponibles = sorted(df_out['_unidad'].dropna().unique().tolist())
+
+        # Descripciones (equivale a rango ref / tipo de medición)
+        desc_disponibles = sorted(df_out['DescAgrupada'].dropna().unique().tolist())
 
         with fc1:
             sel_mes = st.multiselect("Mes", meses_disponibles, default=meses_disponibles,
-                                     placeholder="Todos los meses")
+                                     placeholder="Todos los meses", key="f3_mes")
         with fc2:
             sel_sist = st.multiselect("Sistema", sistemas_disponibles, default=sistemas_disponibles,
-                                      placeholder="Todos los sistemas")
+                                      placeholder="Todos los sistemas", key="f3_sist")
         with fc3:
             sel_crit = st.multiselect("Criticidad", criticas_opciones, default=criticas_opciones,
-                                      placeholder="Todas")
+                                      placeholder="Todas", key="f3_crit")
+        with fc4:
+            sel_unidad = st.multiselect("Vehículo / Módulo", unidades_disponibles,
+                                        default=unidades_disponibles, placeholder="Todas las unidades",
+                                        key="f3_unidad")
+        with fc5:
+            sel_desc = st.multiselect("Tipo de medición", desc_disponibles,
+                                      default=desc_disponibles, placeholder="Todas",
+                                      key="f3_desc")
 
         df_filtrado = df_out[
             df_out['Mes'].isin(sel_mes) &
             df_out['SistemaUnidad'].isin(sel_sist) &
-            df_out['Criticidad'].isin(sel_crit)
+            df_out['Criticidad'].isin(sel_crit) &
+            df_out['_unidad'].isin(sel_unidad) &
+            df_out['DescAgrupada'].isin(sel_desc)
         ].copy()
 
         def ref_str(row):
@@ -958,11 +1072,11 @@ with tab4:
         }
 
         categorias = ['Fuera de rango', 'Ausencia de elementos', 'Mal estado']
-        cols_pareto = st.columns(3)
+        #cols_pareto = st.columns(3) (elimine esta linea para que aparezca uno debajo del otro)
 
         for i, cat in enumerate(categorias):
-            df_cat = df[df['Clasificacion'] == cat].copy()
-            with cols_pareto[i]:
+            df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat.lower()].copy()
+            #with cols_pareto[i]: (elimine esta linea para que aparezca uno debajo del otro)
                 st.markdown(f"##### {cat}")
                 if df_cat.empty:
                     st.caption("Sin datos")
@@ -1081,23 +1195,20 @@ with tab5:
     # Agrupar
     df_exp = df.groupby([col_x, col_color]).size().reset_index(name='Cantidad')
 
-    barmode_map = {
-        "Barras agrupadas":   "group",
-        "Barras apiladas":    "stack",
-        "Barras apiladas %":  "stack",
-    }
-    barnorm = "percent" if tipo_graf == "Barras apiladas %" else None
-
-    # barnorm solo se pasa si es necesario (None causa TypeError en algunos versions de plotly)
+    # Construir kwargs sin barnorm para evitar TypeError
     bar_kwargs = dict(
         x=col_x, y='Cantidad', color=col_color,
-        barmode=barmode_map[tipo_graf],
         text_auto=True,
         labels={col_x: eje_x, col_color: eje_color, 'Cantidad': 'Observaciones'},
         color_discrete_sequence=['#4fc3f7','#ef5350','#ffa726','#66bb6a','#ab47bc','#26c6da','#81d4fa'],
     )
-    if barnorm:
-        bar_kwargs['barnorm'] = barnorm
+    if tipo_graf == "Barras apiladas %":
+        bar_kwargs['barmode']  = 'stack'
+        bar_kwargs['barnorm']  = 'percent'
+    elif tipo_graf == "Barras apiladas":
+        bar_kwargs['barmode']  = 'stack'
+    else:
+        bar_kwargs['barmode']  = 'group'
     fig_exp = px.bar(df_exp, **bar_kwargs)
     fig_exp.update_traces(textfont=dict(size=11, color='white'), textposition='inside')
     fig_exp.update_layout(
