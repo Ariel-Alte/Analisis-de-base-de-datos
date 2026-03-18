@@ -448,80 +448,181 @@ def generar_word(df, df_out, config=None):
     # ENCABEZADO — tabla sin bordes, ancho de página
     # ────────────────────────────────────────────
     header = section.header
-    # Limpiar párrafos por defecto
-    for p in header.paragraphs:
-        p._element.getparent().remove(p._element)
 
-    # Negativo de margen para que la tabla llegue al borde físico
-    neg_margin = OxmlElement('w:tblInd')
-    # Tabla: 1 fila, 2 columnas (banner | datos)
-    hdr_tbl = header.add_table(rows=1, cols=2)
-    hdr_tbl.alignment = WD_TABLE_ALIGNMENT.LEFT
+    # ── Encabezado: construir tabla via XML directo ──
+    # python-docx no soporta header.add_table(), se usa el elemento XML del header
+    hdr_elem = header._element
 
-    # Quitar bordes
-    remove_borders(hdr_tbl)
-    # Ancho total = ancho de página completo
-    set_tbl_width(hdr_tbl, HDR_W)
-    # Alto fijo ~ 2.5cm
-    set_row_height(hdr_tbl.rows[0], 2.5, exact=True)
+    # Limpiar contenido existente del header
+    for child in list(hdr_elem):
+        hdr_elem.remove(child)
 
-    # Columna 0: banner/logo (70% del ancho)
     W_BANNER = int(HDR_W * 0.70)
     W_DATA   = HDR_W - W_BANNER
 
-    cell_banner = hdr_tbl.cell(0, 0)
-    cell_data   = hdr_tbl.cell(0, 1)
-    set_cell_width(cell_banner, W_BANNER)
-    set_cell_width(cell_data,   W_DATA)
+    # Construir XML de la tabla del encabezado manualmente
+    def make_hdr_table():
+        tbl = OxmlElement('w:tbl')
 
-    # Banner
+        # tblPr
+        tblPr = OxmlElement('w:tblPr')
+        tblW  = OxmlElement('w:tblW')
+        tblW.set(qn('w:w'), str(HDR_W))
+        tblW.set(qn('w:type'), 'dxa')
+        tblPr.append(tblW)
+        # Sin bordes
+        tblBorders = OxmlElement('w:tblBorders')
+        for side in ['top','left','bottom','right','insideH','insideV']:
+            b = OxmlElement(f'w:{side}')
+            b.set(qn('w:val'),   'none')
+            b.set(qn('w:sz'),    '0')
+            b.set(qn('w:space'),'0')
+            b.set(qn('w:color'),'auto')
+            tblBorders.append(b)
+        tblPr.append(tblBorders)
+        # Sin indent
+        tblInd = OxmlElement('w:tblInd')
+        tblInd.set(qn('w:w'),    '0')
+        tblInd.set(qn('w:type'), 'dxa')
+        tblPr.append(tblInd)
+        tbl.append(tblPr)
+
+        # tblGrid
+        tblGrid = OxmlElement('w:tblGrid')
+        for w in [W_BANNER, W_DATA]:
+            gc = OxmlElement('w:gridCol')
+            gc.set(qn('w:w'), str(w))
+            tblGrid.append(gc)
+        tbl.append(tblGrid)
+
+        # fila
+        tr = OxmlElement('w:tr')
+        trPr = OxmlElement('w:trPr')
+        trH  = OxmlElement('w:trHeight')
+        trH.set(qn('w:val'),   str(int(2.5 * 567)))  # 2.5cm en DXA
+        trH.set(qn('w:hRule'), 'exact')
+        trPr.append(trH)
+        tr.append(trPr)
+        tbl.append(tr)
+
+        return tbl, tr
+
+    hdr_tbl_xml, hdr_tr = make_hdr_table()
+
+    def make_tc(width, fill, content_xml=None):
+        tc   = OxmlElement('w:tc')
+        tcPr = OxmlElement('w:tcPr')
+        tcW  = OxmlElement('w:tcW')
+        tcW.set(qn('w:w'),    str(width))
+        tcW.set(qn('w:type'), 'dxa')
+        tcPr.append(tcW)
+        shd  = OxmlElement('w:shd')
+        shd.set(qn('w:val'),   'clear')
+        shd.set(qn('w:color'), 'auto')
+        shd.set(qn('w:fill'),  fill)
+        tcPr.append(shd)
+        # Margen interno
+        tcMar = OxmlElement('w:tcMar')
+        for side in ['top','left','bottom','right']:
+            m = OxmlElement(f'w:{side}')
+            m.set(qn('w:w'),    '80')
+            m.set(qn('w:type'), 'dxa')
+            tcMar.append(m)
+        tcPr.append(tcMar)
+        tc.append(tcPr)
+        if content_xml is not None:
+            tc.append(content_xml)
+        else:
+            # párrafo vacío requerido
+            tc.append(OxmlElement('w:p'))
+        return tc
+
+    def make_para_xml(text, bold=False, size=9, color='000000', align='left'):
+        p   = OxmlElement('w:p')
+        pPr = OxmlElement('w:pPr')
+        jc  = OxmlElement('w:jc')
+        jc.set(qn('w:val'), align)
+        pPr.append(jc)
+        p.append(pPr)
+        r   = OxmlElement('w:r')
+        rPr = OxmlElement('w:rPr')
+        if bold:
+            b = OxmlElement('w:b')
+            rPr.append(b)
+        sz  = OxmlElement('w:sz')
+        sz.set(qn('w:val'), str(size * 2))
+        rPr.append(sz)
+        col_el = OxmlElement('w:color')
+        col_el.set(qn('w:val'), color)
+        rPr.append(col_el)
+        fn  = OxmlElement('w:rFonts')
+        fn.set(qn('w:ascii'),  'Arial')
+        fn.set(qn('w:hAnsi'), 'Arial')
+        rPr.append(fn)
+        r.append(rPr)
+        t = OxmlElement('w:t')
+        t.text = text
+        t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+        r.append(t)
+        p.append(r)
+        return p
+
+    # Celda banner
     if logo_bytes:
-        set_shd(cell_banner, 'FFFFFF')
-        cell_banner.paragraphs[0].clear()
-        cell_banner.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-        run_img = cell_banner.paragraphs[0].add_run()
-        # Escalar imagen para que quepa en 2.5cm de alto
-        run_img.add_picture(io.BytesIO(logo_bytes), height=Cm(2.3))
+        # Imagen en párrafo XML
+        from docx.shared import Cm as DocxCm
+        # Usamos un documento temporal para insertar la imagen y extraer el XML
+        tmp_doc  = Document()
+        tmp_para = tmp_doc.add_paragraph()
+        tmp_run  = tmp_para.add_run()
+        tmp_run.add_picture(io.BytesIO(logo_bytes), height=Cm(2.2))
+        img_xml  = tmp_para._element
+        tc_banner = make_tc(W_BANNER, 'FFFFFF', img_xml)
     else:
-        set_shd(cell_banner, '1F3864')
-        para_in_cell(cell_banner, 'TRENES ARGENTINOS — PISE',
-                     bold=True, size=13, color='FFFFFF',
-                     align=WD_ALIGN_PARAGRAPH.CENTER)
+        p_banner = make_para_xml('TRENES ARGENTINOS — PISE',
+                                  bold=True, size=13, color='FFFFFF', align='center')
+        tc_banner = make_tc(W_BANNER, '1F3864', p_banner)
 
-    # Datos — tabla interna sin bordes dentro de cell_data
-    set_shd(cell_data, 'EBF3FB')
-    cell_data.paragraphs[0].clear()
-
-    # Sub-tabla con los campos
-    sub = cell_data.add_table(rows=4, cols=2)
-    remove_borders(sub)
-    set_tbl_width(sub, W_DATA)
-    sub_col = W_DATA // 2
-
+    # Celda datos — múltiples párrafos
+    tc_data = make_tc(W_DATA, 'EBF3FB')
+    # Remover el párrafo vacío inicial
+    for child in list(tc_data):
+        if child.tag == qn('w:p'):
+            tc_data.remove(child)
     fields = [
-        ('Código:',  hdr_codigo  or '___________'),
-        ('Versión:', hdr_version),
-        ('Fecha:',   date.today().strftime('%d/%m/%Y')),
-        ('Línea:',   hdr_linea   or '___________'),
+        (f"Código:   {hdr_codigo or '___________'}",),
+        (f"Versión:  {hdr_version}",),
+        (f"Fecha:    {date.today().strftime('%d/%m/%Y')}",),
+        (f"Línea:    {hdr_linea or '___________'}",),
     ]
-    for i, (label, value) in enumerate(fields):
-        lc = sub.cell(i, 0)
-        vc = sub.cell(i, 1)
-        set_cell_width(lc, sub_col)
-        set_cell_width(vc, sub_col)
-        set_shd(lc, 'EBF3FB')
-        set_shd(vc, 'EBF3FB')
-        para_in_cell(lc, label, bold=True, size=8, color='1F3864')
-        para_in_cell(vc, value, bold=False, size=8, color='333333')
+    for (text,) in fields:
+        tc_data.append(make_para_xml(text, bold=False, size=8, color='1F3864', align='left'))
 
-    # Subgerencia — párrafo debajo de la tabla del encabezado
-    p_subger = header.add_paragraph()
-    p_subger.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_sg = p_subger.add_run(hdr_subger)
-    run_sg.font.size = Pt(7)
-    run_sg.font.name = 'Arial'
-    run_sg.font.italic = True
-    run_sg.font.color.rgb = RGBColor(0x1F, 0x38, 0x64)
+    hdr_tr.append(tc_banner)
+    hdr_tr.append(tc_data)
+    hdr_elem.append(hdr_tbl_xml)
+
+    # Subgerencia como párrafo final del encabezado
+    p_sg   = OxmlElement('w:p')
+    pPr_sg = OxmlElement('w:pPr')
+    jc_sg  = OxmlElement('w:jc')
+    jc_sg.set(qn('w:val'), 'center')
+    pPr_sg.append(jc_sg)
+    p_sg.append(pPr_sg)
+    r_sg   = OxmlElement('w:r')
+    rPr_sg = OxmlElement('w:rPr')
+    sz_sg  = OxmlElement('w:sz'); sz_sg.set(qn('w:val'), '14')
+    i_sg   = OxmlElement('w:i')
+    c_sg   = OxmlElement('w:color'); c_sg.set(qn('w:val'), '1F3864')
+    fn_sg  = OxmlElement('w:rFonts')
+    fn_sg.set(qn('w:ascii'), 'Arial'); fn_sg.set(qn('w:hAnsi'), 'Arial')
+    rPr_sg.extend([sz_sg, i_sg, c_sg, fn_sg])
+    r_sg.append(rPr_sg)
+    t_sg   = OxmlElement('w:t')
+    t_sg.text = hdr_subger
+    r_sg.append(t_sg)
+    p_sg.append(r_sg)
+    hdr_elem.append(p_sg)
 
     # ── PIE DE PÁGINA ──
     footer = section.footer
