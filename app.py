@@ -396,8 +396,32 @@ def fig_to_png_robust(fig, width=700, height=350):
 
             elif trace.type == 'bar':
                 color = '#2E75B6'
-                if hasattr(trace, 'marker') and trace.marker and trace.marker.color:
-                    color = trace.marker.color
+                try:
+                    mc = trace.marker.color if hasattr(trace, 'marker') and trace.marker else None
+                    if mc is not None:
+                        if isinstance(mc, str):
+                            color = mc
+                        elif hasattr(mc, '__len__') and len(mc) > 0:
+                            # Array de colores (color_continuous_scale) → usar colormap
+                            import matplotlib.cm as cm
+                            import matplotlib.colors as mcolors
+                            numeric_vals = []
+                            for v in mc:
+                                try:
+                                    numeric_vals.append(float(v))
+                                except (TypeError, ValueError):
+                                    numeric_vals.append(0)
+                            if numeric_vals:
+                                norm = mcolors.Normalize(vmin=min(numeric_vals), vmax=max(numeric_vals))
+                                cmap = cm.get_cmap('Blues')
+                                color = [cmap(norm(v)) for v in numeric_vals]
+                            else:
+                                color = '#2E75B6'
+                        else:
+                            color = '#2E75B6'
+                except Exception:
+                    color = '#2E75B6'
+
                 if isinstance(color, str) and color.startswith('rgba'):
                     parts = color.replace('rgba(','').replace(')','').split(',')
                     try:
