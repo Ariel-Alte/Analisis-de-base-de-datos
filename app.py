@@ -353,7 +353,7 @@ def generar_word(df, df_out, config=None):
     hdr_codigo  = config.get("codigo",  "") or ""
     hdr_version = config.get("version", "v1.0") or "v1.0"
     hdr_linea   = config.get("linea",   "") or ""
-    hdr_subger  = config.get("subger",  "Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)") or ""
+    hdr_subger  = config.get("subger",  "Programación y Seguimiento de Mantenimiento") or ""
     logo_bytes  = config.get("logo",    None)
 
     doc = Document()
@@ -369,7 +369,7 @@ def generar_word(df, df_out, config=None):
     section.header_distance = Mm(5)
 
     # Ancho de contenido: 210 - 30 = 180mm → DXA
-    PAGE_W = int(180 * 56.69)   # 10204 DXA
+    PAGE_W = int(210 * 56.69)   # 10204 DXA
 
     # ── Estilos base ──
     doc.styles["Normal"].font.name = "Arial"
