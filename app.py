@@ -979,9 +979,12 @@ with tab2:
         fig_line.add_trace(go.Scatter(
             x=monthly_df['Mes'], y=monthly_df['Vehículos'],
             name='Vehículos inspeccionados',
-            mode='lines+markers',
+            mode='lines+markers+text',
             line=dict(color='#66bb6a', width=2, dash='dot'),
             marker=dict(size=7, color='#66bb6a'),
+            text=monthly_df['Vehículos'].astype(str),
+            textposition='top center',
+            textfont=dict(color='#ffa726', size=10),            
             yaxis='y'
         ))
 
@@ -1084,9 +1087,12 @@ with tab2:
         fig_desv.add_trace(go.Scatter(
             x=desv_plot['DescAgrupada'], y=desv_plot['Desv_Min'],
             name='Desvío Mín.',
-            mode='lines+markers',
+            mode='lines+markers+text',
             line=dict(color='#66bb6a', width=1, dash='dash'),
             marker=dict(size=6, color='#66bb6a'),
+            text=desv_plot['Desv_Prom'].astype(str),
+            textposition='bottom center',
+            textfont=dict(color='#ffa726', size=10),
             yaxis='y2'
         ))
 
