@@ -328,10 +328,9 @@ def kpi(label, value, variant="default"):
 def fig_to_png_robust(fig, width=700, height=350):
     """
     Convierte una figura Plotly a bytes PNG.
-    Intenta kaleido primero, luego orca, luego matplotlib como fallback.
-    Retorna bytes PNG o None si todo falla.
+    Intenta kaleido primero, luego orca, luego matplotlib como fallback completo.
     """
-    # Intento 1: kaleido (método preferido)
+    # Intento 1: kaleido
     try:
         png_bytes = fig.to_image(format='png', width=width, height=height, engine='kaleido')
         if png_bytes and len(png_bytes) > 100:
@@ -347,39 +346,104 @@ def fig_to_png_robust(fig, width=700, height=350):
     except Exception:
         pass
 
-    # Intento 3: matplotlib como fallback
+    # Intento 3: matplotlib fallback completo con leyendas, titulos y etiquetas
     try:
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        import matplotlib.cm as mcm
+        import matplotlib.colors as mcolors
+        import matplotlib.patches as mpatches
 
-        bg_color = '#FFFFFF'
-        plot_bg = '#F5F8FA'
-        text_color = '#333333'
-        grid_color = '#E0E0E0'
+        BG     = '#FFFFFF'
+        PLOTBG = '#F5F8FA'
+        TXT    = '#333333'
+        GRID   = '#E0E0E0'
 
-        fig_mpl, ax = plt.subplots(figsize=(width/100, height/100), dpi=150)
-        fig_mpl.patch.set_facecolor(bg_color)
-        ax.set_facecolor(plot_bg)
+        fig_mpl, ax = plt.subplots(figsize=(width / 100, height / 100), dpi=150)
+        fig_mpl.patch.set_facecolor(BG)
+        ax.set_facecolor(PLOTBG)
 
-        has_secondary = any(
-            getattr(t, 'yaxis', None) == 'y2' for t in fig.data
-        )
+        # Detectar eje secundario
+        has_y2 = any(getattr(t, 'yaxis', None) == 'y2' for t in fig.data)
         ax2 = None
-        if has_secondary:
+        if has_y2:
             ax2 = ax.twinx()
             ax2.set_facecolor('none')
 
         bar_x_positions = None
+        legend_handles  = []
+        legend_labels   = []
 
+        # Extraer titulos de ejes del layout de Plotly
+        layout = fig.layout
+        y1_title = y2_title = x_title = ''
+        try:
+            if layout.yaxis and layout.yaxis.title and layout.yaxis.title.text:
+                y1_title = layout.yaxis.title.text
+        except Exception:
+            pass
+        try:
+            if layout.yaxis2 and layout.yaxis2.title and layout.yaxis2.title.text:
+                y2_title = layout.yaxis2.title.text
+        except Exception:
+            pass
+        try:
+            if layout.xaxis and layout.xaxis.title and layout.xaxis.title.text:
+                x_title = layout.xaxis.title.text
+        except Exception:
+            pass
+
+        # Detectar hlines (linea 80% de Pareto)
+        hline_y = None
+        hline_ref = None
+        try:
+            if layout.shapes:
+                for shape in layout.shapes:
+                    if shape.type == 'line' and shape.y0 == shape.y1:
+                        hline_y = shape.y0
+                        hline_ref = getattr(shape, 'yref', 'y')
+        except Exception:
+            pass
+
+        def _safe_color(mc_raw, fallback='#2E75B6'):
+            """Extrae color seguro de marker.color (str, lista, array, tuple)."""
+            if mc_raw is None:
+                return fallback
+            if isinstance(mc_raw, str):
+                if mc_raw.startswith('rgba'):
+                    parts = mc_raw.replace('rgba(', '').replace(')', '').split(',')
+                    try:
+                        return (int(parts[0])/255, int(parts[1])/255, int(parts[2])/255, float(parts[3]))
+                    except Exception:
+                        return fallback
+                return mc_raw
+            try:
+                arr = list(mc_raw)
+                if arr:
+                    nums = []
+                    for v in arr:
+                        try: nums.append(float(v))
+                        except: nums.append(0)
+                    if nums:
+                        norm = mcolors.Normalize(vmin=min(nums), vmax=max(nums))
+                        cmap = mcm.get_cmap('Blues')
+                        return [cmap(norm(v)) for v in nums]
+            except Exception:
+                pass
+            return fallback
+
+        # Recorrer trazas
         for trace in fig.data:
             target_ax = ax2 if (ax2 and getattr(trace, 'yaxis', None) == 'y2') else ax
+            trace_name = getattr(trace, 'name', None) or ''
 
+            # PIE
             if trace.type == 'pie':
                 ax.remove()
                 ax = fig_mpl.add_subplot(111)
-                ax.set_facecolor(bg_color)
-                colors_pie = ['#2E75B6','#E74C3C','#F39C12','#27AE60','#8E44AD']
+                ax.set_facecolor(BG)
+                colors_pie = ['#2E75B6', '#E74C3C', '#F39C12', '#27AE60', '#8E44AD', '#16A085']
                 vals = list(trace.values) if trace.values is not None else []
                 lbls = list(trace.labels) if trace.labels is not None else []
                 if vals:
@@ -387,107 +451,155 @@ def fig_to_png_robust(fig, width=700, height=350):
                         vals, labels=lbls,
                         colors=colors_pie[:len(vals)],
                         autopct='%1.1f%%', pctdistance=0.75,
-                        wedgeprops=dict(width=0.45)
+                        wedgeprops=dict(width=0.45), startangle=90,
                     )
-                    for t in texts + autotexts:
-                        t.set_color(text_color)
-                        t.set_fontsize(8)
+                    for t in texts:
+                        t.set_color(TXT); t.set_fontsize(9)
+                    for t in autotexts:
+                        t.set_color('white'); t.set_fontsize(8); t.set_fontweight('bold')
+                    ax.legend(wedges, lbls, loc='center left', bbox_to_anchor=(1, 0.5),
+                              fontsize=7, frameon=False, labelcolor=TXT)
                 break
 
+            # BAR
             elif trace.type == 'bar':
-                color = '#2E75B6'
+                mc_raw = None
                 try:
-                    mc = trace.marker.color if hasattr(trace, 'marker') and trace.marker else None
-                    if mc is not None:
-                        if isinstance(mc, str):
-                            color = mc
-                        elif hasattr(mc, '__len__') and len(mc) > 0:
-                            # Array de colores (color_continuous_scale) → usar colormap
-                            import matplotlib.cm as cm
-                            import matplotlib.colors as mcolors
-                            numeric_vals = []
-                            for v in mc:
-                                try:
-                                    numeric_vals.append(float(v))
-                                except (TypeError, ValueError):
-                                    numeric_vals.append(0)
-                            if numeric_vals:
-                                norm = mcolors.Normalize(vmin=min(numeric_vals), vmax=max(numeric_vals))
-                                cmap = cm.get_cmap('Blues')
-                                color = [cmap(norm(v)) for v in numeric_vals]
-                            else:
-                                color = '#2E75B6'
-                        else:
-                            color = '#2E75B6'
+                    mc_raw = trace.marker.color if (hasattr(trace, 'marker') and trace.marker) else None
                 except Exception:
-                    color = '#2E75B6'
-
-                if isinstance(color, str) and color.startswith('rgba'):
-                    parts = color.replace('rgba(','').replace(')','').split(',')
-                    try:
-                        r, g, b = int(parts[0])/255, int(parts[1])/255, int(parts[2])/255
-                        a = float(parts[3])
-                        color = (r, g, b, a)
-                    except (ValueError, IndexError):
-                        color = '#2E75B6'
+                    pass
+                color = _safe_color(mc_raw)
 
                 x_data = list(trace.x) if trace.x is not None else []
                 y_data = list(trace.y) if trace.y is not None else []
-
                 orientation = getattr(trace, 'orientation', None)
-                if orientation == 'h' and y_data and x_data:
-                    positions = range(len(y_data))
-                    target_ax.barh(positions, x_data, color=color, alpha=0.85)
-                    target_ax.set_yticks(positions)
-                    target_ax.set_yticklabels([str(l)[:20] for l in y_data],
-                                              fontsize=7, color=text_color)
-                    target_ax.invert_yaxis()
-                elif x_data and y_data:
-                    positions = range(len(x_data))
-                    bar_x_positions = positions
-                    target_ax.bar(positions, y_data, color=color, alpha=0.85)
-                    target_ax.set_xticks(positions)
-                    labels = [str(l)[:14] for l in x_data]
-                    target_ax.set_xticklabels(labels, fontsize=6, color=text_color,
-                                              rotation=35, ha='right')
 
+                if orientation == 'h' and y_data and x_data:
+                    positions = list(range(len(y_data)))
+                    target_ax.barh(positions, x_data, color=color, alpha=0.85, label=trace_name)
+                    target_ax.set_yticks(positions)
+                    target_ax.set_yticklabels([str(l) for l in y_data], fontsize=7, color=TXT)
+                    target_ax.invert_yaxis()
+                    for j, v in enumerate(x_data):
+                        try:
+                            fv = float(v)
+                            target_ax.text(fv + max(float(xx) for xx in x_data) * 0.015, j,
+                                           str(int(fv)) if fv == int(fv) else f"{fv:.1f}",
+                                           va='center', ha='left', fontsize=7, color=TXT)
+                        except Exception:
+                            pass
+                elif x_data and y_data:
+                    positions = list(range(len(x_data)))
+                    bar_x_positions = positions
+                    target_ax.bar(positions, y_data, color=color, alpha=0.85, label=trace_name)
+                    target_ax.set_xticks(positions)
+                    target_ax.set_xticklabels([str(l) for l in x_data],
+                                              fontsize=6, color=TXT, rotation=35, ha='right')
+                    for j, v in enumerate(y_data):
+                        try:
+                            fv = float(v)
+                            target_ax.text(j, fv + max(float(yy) for yy in y_data) * 0.02,
+                                           str(int(fv)) if fv == int(fv) else f"{fv:.1f}",
+                                           ha='center', va='bottom', fontsize=7, color=TXT)
+                        except Exception:
+                            pass
+
+                if trace_name:
+                    c = color if isinstance(color, str) else (color[0] if isinstance(color, list) else '#2E75B6')
+                    legend_handles.append(mpatches.Patch(color=c, alpha=0.85))
+                    legend_labels.append(trace_name)
+
+            # SCATTER
             elif trace.type == 'scatter':
                 line_color = '#F39C12'
-                if hasattr(trace, 'line') and trace.line and trace.line.color:
-                    line_color = trace.line.color
+                try:
+                    if trace.line and trace.line.color:
+                        line_color = trace.line.color
+                except Exception:
+                    pass
 
                 x_data = list(trace.x) if trace.x is not None else []
                 y_data = list(trace.y) if trace.y is not None else []
 
                 if x_data and y_data:
-                    # Usar mismas posiciones que las barras si existen
-                    if bar_x_positions is not None and len(x_data) == len(list(bar_x_positions)):
+                    if bar_x_positions is not None and len(x_data) == len(bar_x_positions):
                         x_plot = list(bar_x_positions)
                     else:
                         x_plot = list(range(len(x_data)))
 
-                    dash = getattr(trace.line, 'dash', None) if hasattr(trace, 'line') and trace.line else None
+                    dash = None
+                    try: dash = trace.line.dash if trace.line else None
+                    except: pass
                     ls = '--' if dash in ('dot', 'dash', 'dashdot') else '-'
-                    target_ax.plot(x_plot, y_data, color=line_color,
-                                   marker='o', markersize=4, linewidth=1.5, linestyle=ls)
 
-        # Estilizar ejes
+                    line_obj, = target_ax.plot(x_plot, y_data, color=line_color,
+                                               marker='o', markersize=5, linewidth=2,
+                                               linestyle=ls, label=trace_name)
+                    # Etiquetas de valor
+                    y_max = max(float(yy) for yy in y_data) if y_data else 1
+                    for j, v in enumerate(y_data):
+                        try:
+                            fv = float(v)
+                            lbl = f"{fv:.1f}" if fv != int(fv) else str(int(fv))
+                            if 'acum' in (y2_title or '').lower() or '%' in (y2_title or ''):
+                                lbl += '%'
+                            target_ax.text(x_plot[j], fv + y_max * 0.03, lbl,
+                                           ha='center', va='bottom', fontsize=6,
+                                           color=line_color, fontweight='bold')
+                        except Exception:
+                            pass
+
+                    if trace_name:
+                        legend_handles.append(line_obj)
+                        legend_labels.append(trace_name)
+
+        # Linea horizontal de referencia (80% Pareto)
+        if hline_y is not None:
+            ref_ax = ax2 if (ax2 and hline_ref and 'y2' in str(hline_ref)) else ax
+            ref_ax.axhline(y=hline_y, color='#F39C12', linestyle='--', linewidth=1.2, alpha=0.8)
+            ref_ax.text(0.02, hline_y, f'{int(hline_y)}%',
+                        transform=ref_ax.get_yaxis_transform(),
+                        color='#F39C12', fontsize=8, fontweight='bold', va='bottom')
+
+        # Titulos de ejes
+        if y1_title:
+            ax.set_ylabel(y1_title, fontsize=9, color=TXT, fontweight='bold')
+        if y2_title and ax2:
+            ax2.set_ylabel(y2_title, fontsize=9, color=TXT, fontweight='bold')
+        if x_title:
+            ax.set_xlabel(x_title, fontsize=9, color=TXT, fontweight='bold')
+
+        # Titulo del grafico
+        try:
+            if layout.title and layout.title.text:
+                fig_mpl.suptitle(layout.title.text, fontsize=11, color=TXT, fontweight='bold', y=0.98)
+        except Exception:
+            pass
+
+        # Estilo de ejes
         for a in [ax] + ([ax2] if ax2 else []):
-            a.tick_params(colors=text_color, labelsize=7)
+            a.tick_params(colors=TXT, labelsize=7)
             for spine in a.spines.values():
-                spine.set_color(grid_color)
-            a.grid(True, alpha=0.3, color=grid_color)
+                spine.set_color(GRID)
+            a.grid(True, alpha=0.3, color=GRID, linestyle='-', linewidth=0.5)
+
+        # Leyenda combinada
+        if legend_handles and legend_labels:
+            ax.legend(legend_handles, legend_labels, loc='upper center',
+                      bbox_to_anchor=(0.5, -0.18), ncol=min(len(legend_labels), 4),
+                      fontsize=8, frameon=True, facecolor=BG, edgecolor=GRID, labelcolor=TXT)
 
         buf = io.BytesIO()
-        fig_mpl.tight_layout()
-        fig_mpl.savefig(buf, format='png', facecolor=bg_color,
+        fig_mpl.tight_layout(rect=[0, 0.05, 1, 0.95])
+        fig_mpl.savefig(buf, format='png', facecolor=BG,
                         edgecolor='none', bbox_inches='tight', dpi=150)
         plt.close(fig_mpl)
         buf.seek(0)
         return buf.getvalue()
     except Exception as e:
         try:
-            st.warning(f"⚠️ No se pudo generar gráfico. Instalá `kaleido` (`pip install kaleido`) para habilitar exportación. Error: {e}")
+            st.warning(f"\u26a0\ufe0f No se pudo generar grafico. Instala kaleido (pip install kaleido) "
+                       f"para mejor calidad. Error: {e}")
         except Exception:
             pass
         return None
