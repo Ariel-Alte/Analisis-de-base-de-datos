@@ -353,7 +353,7 @@ def generar_word(df, df_out, config=None):
     hdr_codigo  = config.get("codigo",  "") or ""
     hdr_version = config.get("version", "v1.0") or "v1.0"
     hdr_linea   = config.get("linea",   "") or ""
-    hdr_subger  = config.get("subger",  "Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)") or ""
+    hdr_subger  = config.get("subger",  "Programación y Seguimiento de Mantenimiento") or ""
     logo_bytes  = config.get("logo",    None)
 
     doc = Document()
@@ -446,7 +446,7 @@ def generar_word(df, df_out, config=None):
     W_LEFT  = int(PAGE_W * 0.65)
     W_RIGHT = PAGE_W - W_LEFT
 
-    htbl = header.add_table(rows=1, cols=2, width=Mm(180))
+    htbl = header.add_table(rows=1, cols=2, width=Mm(210))
     htbl.style = "Table Grid"
     remove_borders(htbl)
     set_tbl_w(htbl, PAGE_W)
@@ -455,7 +455,7 @@ def generar_word(df, df_out, config=None):
     tr = htbl.rows[0]._tr
     trPr = tr.get_or_add_trPr()
     trH = OxmlElement("w:trHeight")
-    trH.set(qn("w:val"),    str(int(2.5 * 567)))
+    trH.set(qn("w:val"),    str(int(1 * 567)))
     trH.set(qn("w:hRule"),  "exact")
     trPr.append(trH)
 
@@ -473,7 +473,7 @@ def generar_word(df, df_out, config=None):
         run_img.add_picture(io.BytesIO(logo_bytes), height=Cm(2.2))
     else:
         set_shd(c_left, "1F3864")
-        cell_text(c_left, "TRENES ARGENTINOS — PISE",
+        cell_text(c_left, "TRENES ARGENTINOS OPERACIONES",
                   bold=True, size=13, color="FFFFFF",
                   align=WD_ALIGN_PARAGRAPH.CENTER)
 
@@ -1453,7 +1453,7 @@ with tab6:
     with hdr_col2:
         logo_file    = st.file_uploader("Banner / Logo (JPG o PNG)", type=["jpg","jpeg","png"],
                                          help="Imagen que aparece en el encabezado de todas las páginas")
-        hdr_subger   = st.text_input("Subgerencia", value="Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)")
+        hdr_subger   = st.text_input("Subgerencia", value="Programación y Seguimiento de Mantenimiento")
 
     st.markdown("---")
 
