@@ -638,7 +638,7 @@ def generar_word(df, df_out, config=None):
     hdr_codigo    = config.get("codigo",  "") or ""
     hdr_version   = config.get("version", "v1.0") or "v1.0"
     hdr_linea     = config.get("linea",   "") or ""
-    hdr_subger    = config.get("subger",  "Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)") or ""
+    hdr_subger    = config.get("subger",  "Programación y Seguimiento de Mantenimiento") or ""
     logo_bytes    = config.get("logo",    None)
 
     doc = Document()
@@ -1666,15 +1666,15 @@ with tab4:
         }
 
         categorias = ['Fuera de rango', 'Ausencia de elementos', 'Mal estado']
-        cols_pareto = st.columns(3)
+        #cols_pareto = st.columns(3)
 
         for i, cat in enumerate(categorias):
             df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat.lower()].copy()
-            with cols_pareto[i]:
-                st.markdown(f"##### {cat}")
-                if df_cat.empty:
-                    st.caption("Sin datos")
-                    continue
+            #with cols_pareto[i]:
+            st.markdown(f"##### {cat}")
+            if df_cat.empty:
+                st.caption("Sin datos")
+                continue
 
                 conteo = df_cat.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
                 conteo.columns = ['Sistema', 'Cantidad']
@@ -1823,7 +1823,7 @@ with tab6:
     with hdr_col2:
         logo_file    = st.file_uploader("Banner / Logo (JPG o PNG)", type=["jpg","jpeg","png"],
                                          help="Imagen que aparece en el encabezado de todas las páginas")
-        hdr_subger   = st.text_input("Subgerencia", value="Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)")
+        hdr_subger   = st.text_input("Subgerencia", value="Programación y Seguimiento de Mantenimiento")
 
     st.markdown("---")
     st.markdown("##### Tablas a incluir en el Word")
