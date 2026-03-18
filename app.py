@@ -364,12 +364,12 @@ def generar_word(df, df_out, config=None):
     section.page_height     = Mm(297)
     section.left_margin     = Mm(15)
     section.right_margin    = Mm(15)
-    section.top_margin      = Mm(35)
+    section.top_margin      = Mm(30)
     section.bottom_margin   = Mm(15)
     section.header_distance = Mm(5)
 
     # Ancho de contenido: 210 - 30 = 180mm → DXA
-    PAGE_W = int(210 * 56.69)   # 10204 DXA
+    PAGE_W = int(180 * 56.69)   # 10204 DXA
 
     # ── Estilos base ──
     doc.styles["Normal"].font.name = "Arial"
@@ -473,7 +473,7 @@ def generar_word(df, df_out, config=None):
         run_img.add_picture(io.BytesIO(logo_bytes), height=Cm(2.2))
     else:
         set_shd(c_left, "1F3864")
-        cell_text(c_left, "TRENES ARGENTINOS — PISE",
+        cell_text(c_left, "TRENES ARGENTINOS OPERACIONES",
                   bold=True, size=13, color="FFFFFF",
                   align=WD_ALIGN_PARAGRAPH.CENTER)
 
