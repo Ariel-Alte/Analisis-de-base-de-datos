@@ -489,28 +489,36 @@ def generar_word(df, df_out, config=None):
     sub_w = W_RIGHT // 2
 
     fields = [
-        ("Código:",  hdr_codigo  or "___________"),
-        ("Versión:", hdr_version),
-        ("Fecha:",   date.today().strftime("%d/%m/%Y")),
-        ("Línea:",   hdr_linea   or "___________"),
+        ("Código:",      hdr_codigo  or "___________"),
+        ("Versión:",     hdr_version),
+        ("Fecha:",       date.today().strftime("%d/%m/%Y")),
+        ("Línea:",       hdr_linea   or "___________"),
+        ("Subgerencia:", hdr_subger),
     ]
-    for i, (lbl, val) in enumerate(fields):
-        lc, vc = sub.cell(i, 0), sub.cell(i, 1)
-        set_cell_w(lc, sub_w)
-        set_cell_w(vc, sub_w)
-        set_shd(lc, "EBF3FB")
-        set_shd(vc, "EBF3FB")
-        cell_text(lc, lbl, bold=True,  size=8, color="1F3864", align=WD_ALIGN_PARAGRAPH.LEFT)
-        cell_text(vc, val, bold=False, size=8, color="333333", align=WD_ALIGN_PARAGRAPH.LEFT)
+    # Última fila (subgerencia) ocupa ambas columnas
+    sub = c_right.add_table(rows=len(fields), cols=2)
+    remove_borders(sub)
+    set_tbl_w(sub, W_RIGHT)
+    sub_w = W_RIGHT // 2
 
-    # Subgerencia debajo
-    p_sg = header.add_paragraph()
-    p_sg.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r_sg = p_sg.add_run(hdr_subger)
-    r_sg.font.size   = Pt(7)
-    r_sg.font.name   = "Arial"
-    r_sg.font.italic = True
-    r_sg.font.color.rgb = RGBColor(0x1F, 0x38, 0x64)
+    for i, (lbl, val) in enumerate(fields):
+        last = (i == len(fields) - 1)
+        if last:
+            # Fusionar ambas columnas para la subgerencia
+            merged = sub.cell(i, 0).merge(sub.cell(i, 1))
+            set_cell_w(merged, W_RIGHT)
+            set_shd(merged, "D5E8F0")
+            cell_text(merged, f"{lbl} {val}",
+                      bold=False, size=7, color="1F3864",
+                      align=WD_ALIGN_PARAGRAPH.LEFT, italic=True)
+        else:
+            lc, vc = sub.cell(i, 0), sub.cell(i, 1)
+            set_cell_w(lc, sub_w)
+            set_cell_w(vc, sub_w)
+            set_shd(lc, "EBF3FB")
+            set_shd(vc, "EBF3FB")
+            cell_text(lc, lbl, bold=True,  size=8, color="1F3864", align=WD_ALIGN_PARAGRAPH.LEFT)
+            cell_text(vc, val, bold=False, size=8, color="333333", align=WD_ALIGN_PARAGRAPH.LEFT)
 
     # ── PIE DE PÁGINA ──
     footer = section.footer
