@@ -414,6 +414,110 @@ def generar_word(df, df_out):
             "El análisis de desvíos no está disponible para este formato."
         )
 
+    # ── CONCLUSIONES DINÁMICAS ──
+    num_sec = "5." if tiene_desv else "4."
+    add_section(f"{num_sec} Conclusiones y Observaciones Generales")
+    doc.add_paragraph(
+        "Del análisis de la totalidad de las inspecciones estáticas realizadas "
+        "durante el período se extraen las siguientes conclusiones:"
+    )
+    doc.add_paragraph()
+
+    conclusiones = []
+    n = len(df)
+
+    # 1. Sistema con más observaciones
+    sist_top_cod  = df['SistemaUnidad'].value_counts().index[0]
+    sist_top_n    = int(df['SistemaUnidad'].value_counts().iloc[0])
+    sist_top_lbl  = SISTEMA_LABELS.get(sist_top_cod, sist_top_cod)
+    sist_top_pct  = round(sist_top_n / n * 100, 1)
+    conclusiones.append(
+        f"El sistema de {sist_top_lbl} ({sist_top_cod}) concentra la mayor cantidad de "
+        f"observaciones con {sist_top_n} casos ({sist_top_pct}% del total), lo que indica "
+        f"que es el área de mayor desgaste y atención requerida."
+    )
+
+    # 2. Vehículo o módulo con más fallas
+    df['_unidad'] = df['Modulo'].apply(
+        lambda x: None if (x is None or str(x).strip() in ('', '0', 'nan')) else str(x).strip()
+    ).fillna(df['Vehiculo'].astype(str).str.strip())
+    unidad_top   = df['_unidad'].value_counts().index[0]
+    unidad_top_n = int(df['_unidad'].value_counts().iloc[0])
+    conclusiones.append(
+        f"La unidad con mayor cantidad de observaciones es {unidad_top} con {unidad_top_n} casos, "
+        f"siendo candidata prioritaria para revisión integral."
+    )
+
+    # 3. Clasificación dominante
+    if 'Clasificacion' in df.columns and df['Clasificacion'].notna().any():
+        clasif_top   = df['Clasificacion'].value_counts().index[0]
+        clasif_top_n = int(df['Clasificacion'].value_counts().iloc[0])
+        clasif_top_pct = round(clasif_top_n / n * 100, 1)
+        conclusiones.append(
+            f"La clasificación de falla predominante es '{clasif_top}' con {clasif_top_n} casos "
+            f"({clasif_top_pct}% del total), seguida por "
+            f"'{df['Clasificacion'].value_counts().index[1] if len(df['Clasificacion'].value_counts()) > 1 else '-'}' "
+            f"con {int(df['Clasificacion'].value_counts().iloc[1]) if len(df['Clasificacion'].value_counts()) > 1 else 0} casos."
+        )
+
+    # 4. % criticidad alta
+    total_c = int((df['Criticidad'] == 'C').sum())
+    total_r = int((df['Criticidad'] == 'R').sum())
+    pct_cr  = round((total_c + total_r) / n * 100, 1)
+    conclusiones.append(
+        f"Las observaciones de criticidad alta (Crítico + Rechazado) representan el {pct_cr}% "
+        f"del total ({total_c} críticas y {total_r} rechazadas), requiriendo atención prioritaria."
+    )
+
+    # 5. Falla más recurrente
+    falla_top   = df['DescAgrupada'].value_counts().index[0]
+    falla_top_n = int(df['DescAgrupada'].value_counts().iloc[0])
+    falla_top_pct = round(falla_top_n / n * 100, 1)
+    conclusiones.append(
+        f"La falla más recurrente es '{falla_top}' con {falla_top_n} casos "
+        f"({falla_top_pct}% del total de observaciones)."
+    )
+
+    # 6. Desvíos — solo si hay columnas de referencia
+    if tiene_desv and not df_out.empty:
+        # Grupo con mayor desvío promedio absoluto
+        desv_grupo = df_out.groupby('DescAgrupada').agg(
+            Cantidad=('Desviacion','count'),
+            DesvProm=('Desviacion', lambda x: round(x.abs().mean(), 2)),
+            DesvMax=('Desviacion',  lambda x: round(x.abs().max(),  2)),
+        ).sort_values('DesvMax', ascending=False)
+
+        grp_top     = desv_grupo.index[0]
+        grp_max     = desv_grupo.iloc[0]['DesvMax']
+        grp_prom    = desv_grupo.iloc[0]['DesvProm']
+        grp_cant    = int(desv_grupo.iloc[0]['Cantidad'])
+
+        # Fila individual con mayor desvío absoluto
+        fila_max    = df_out.loc[df_out['Desviacion'].abs().idxmax()]
+        veh_max     = fila_max['Vehiculo']
+        desc_max    = str(fila_max['Descripcion'])[:60]
+        ref_min     = fila_max.get('RefMin', '-')
+        ref_max_val = fila_max.get('RefMax', '-')
+        val_relev   = round(float(fila_max['ValorRelevado']), 1) if pd.notna(fila_max['ValorRelevado']) else '-'
+        desv_max_v  = round(float(fila_max['Desviacion']), 2)
+        direccion   = "por encima del máximo" if desv_max_v > 0 else "por debajo del mínimo"
+
+        conclusiones.append(
+            f"En cuanto a valores fuera de parámetro, la categoría con mayor desvío es "
+            f"'{grp_top}' ({grp_cant} casos), con un desvío promedio de {grp_prom} unidades "
+            f"y un máximo de {grp_max} unidades. El caso más extremo corresponde a la unidad "
+            f"{veh_max} ('{desc_max}'), con un valor relevado de {val_relev} "
+            f"frente a un rango de referencia de [{ref_min} – {ref_max_val}], "
+            f"resultando {abs(desv_max_v)} unidades {direccion}."
+        )
+
+    # Escribir conclusiones numeradas
+    for idx, texto in enumerate(conclusiones, 1):
+        p = doc.add_paragraph(style='List Number')
+        run = p.add_run(texto)
+        run.font.size = Pt(11)
+        run.font.name = 'Arial'
+
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
@@ -984,17 +1088,17 @@ with tab5:
     }
     barnorm = "percent" if tipo_graf == "Barras apiladas %" else None
 
-    fig_exp = px.bar(
-        df_exp,
-        x=col_x,
-        y='Cantidad',
-        color=col_color,
+    # barnorm solo se pasa si es necesario (None causa TypeError en algunos versions de plotly)
+    bar_kwargs = dict(
+        x=col_x, y='Cantidad', color=col_color,
         barmode=barmode_map[tipo_graf],
-        barnorm=barnorm,
         text_auto=True,
         labels={col_x: eje_x, col_color: eje_color, 'Cantidad': 'Observaciones'},
         color_discrete_sequence=['#4fc3f7','#ef5350','#ffa726','#66bb6a','#ab47bc','#26c6da','#81d4fa'],
     )
+    if barnorm:
+        bar_kwargs['barnorm'] = barnorm
+    fig_exp = px.bar(df_exp, **bar_kwargs)
     fig_exp.update_traces(textfont=dict(size=11, color='white'), textposition='inside')
     fig_exp.update_layout(
         **PLOTLY_THEME,
