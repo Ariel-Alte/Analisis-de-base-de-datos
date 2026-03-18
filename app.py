@@ -296,6 +296,12 @@ def cargar_y_analizar(file_bytes):
             lambda x: None if (pd.isna(x) or str(x).strip().startswith('=')) else str(x).strip()
         )
 
+    # ── Convertir CodItem a numérico (cantidad de observaciones por fila) ──
+    if 'CodItem' in df.columns:
+        df['CodItem_num'] = pd.to_numeric(df['CodItem'], errors='coerce').fillna(1).astype(int)
+    else:
+        df['CodItem_num'] = 1
+
     # ── 7. Calcular desvios (solo si hay columnas de referencia) ──
     if tiene_refs and all(c in df.columns for c in ['RefMin','RefMax','Relevado1','Relevado2']):
         df_ref = df[df['RefMin'].notna() | df['RefMax'].notna()].copy()
@@ -852,24 +858,24 @@ def generar_word(df, df_out, config=None):
     p_meta = doc.add_paragraph(
         f"Período: {df['Mes'].dropna().nunique()} meses  |  "
         f"Vehículos: {df['Vehiculo'].dropna().nunique()}  |  "
-        f"Total observaciones: {len(df)}")
+        f"Total observaciones: {int(df['CodItem_num'].sum())}")
     p_meta.runs[0].font.size = Pt(10)
     doc.add_paragraph()
 
-    n_tot = len(df)
+    n_tot = int(df['CodItem_num'].sum())
     tiene_desv = not df_out.empty and "Desviacion" in df_out.columns
 
     # ── SECCIONES DE TABLAS ──
     if inc_crit:
         next_sec("Distribución por Criticidad")
-        d = df["CritAmpliado"].value_counts().reset_index()
+        d = df.groupby("CritAmpliado")['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         d.columns = ["Criticidad", "Cantidad"]
         d["Porcentaje"] = (d["Cantidad"] / n_tot * 100).round(1).astype(str) + "%"
         table_from_df(d); doc.add_paragraph()
 
     if inc_sistemas:
         next_sec("Observaciones por Sistema")
-        d = df['SistemaUnidad'].value_counts().reset_index()
+        d = df.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         d.columns = ['Código', 'Cantidad']
         d['Sistema'] = d['Código'].map(SISTEMA_LABELS).fillna(d['Código'])
         d['Porcentaje'] = (d['Cantidad'] / n_tot * 100).round(1).astype(str) + "%"
@@ -880,7 +886,7 @@ def generar_word(df, df_out, config=None):
         monthly_data = []
         for m in MONTH_ORDER:
             df_m = df[df['Mes'].str.upper() == m]
-            cnt = len(df_m); vehs = df_m['Vehiculo'].dropna().nunique()
+            cnt = int(df_m['CodItem_num'].sum()); vehs = df_m['Vehiculo'].dropna().nunique()
             if cnt > 0:
                 monthly_data.append({'Mes': m.title(), 'Observaciones': cnt, 'Vehículos': vehs,
                                      'Ratio Obs/Veh': round(cnt / vehs, 2) if vehs > 0 else 0})
@@ -890,7 +896,7 @@ def generar_word(df, df_out, config=None):
 
     if inc_top15:
         next_sec("Top 15 Tipos de Falla")
-        d = df["DescAgrupada"].value_counts().head(15).reset_index()
+        d = df.groupby("DescAgrupada")['CodItem_num'].sum().sort_values(ascending=False).head(15).reset_index()
         d.columns = ["Descripción", "Cantidad"]
         d["% total"] = (d["Cantidad"] / n_tot * 100).round(1).astype(str) + "%"
         table_from_df(d); doc.add_paragraph()
@@ -898,7 +904,7 @@ def generar_word(df, df_out, config=None):
     if tiene_desv and inc_desvios:
         next_sec("Resumen de Desvíos por Categoría")
         d = df_out.groupby("DescAgrupada").agg(
-            Cantidad=("Desviacion", "count"),
+            Cantidad=("CodItem_num", "sum"),
             Desv_Promedio=("Desviacion", lambda x: round(x.mean(), 2)),
             Desv_Max_Abs=("Desviacion", lambda x: round(x.abs().max(), 2)),
             Desv_Min_Abs=("Desviacion", lambda x: round(x.abs().min(), 2)),
@@ -912,7 +918,7 @@ def generar_word(df, df_out, config=None):
             df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat.lower()]
             if df_cat.empty: continue
             next_sec(f"Pareto — {cat}")
-            conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
+            conteo = df_cat.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
             conteo.columns = ['Código', 'Cantidad']
             conteo['Sistema'] = conteo['Código'].map(SISTEMA_LABELS).fillna(conteo['Código'])
             conteo['% del total'] = (conteo['Cantidad'] / conteo['Cantidad'].sum() * 100).round(1).astype(str) + "%"
@@ -951,7 +957,7 @@ def generar_word(df, df_out, config=None):
             df_mr['_unidad'] = df_mr['Modulo'].apply(
                 lambda x: None if (x is None or str(x).strip() in ('','0','nan')) else str(x).strip()
             ).fillna(df_mr['Vehiculo'].astype(str).str.strip())
-            result = df_mr['_unidad'].value_counts().head(10).reset_index()
+            result = df_mr.groupby('_unidad')['CodItem_num'].sum().sort_values(ascending=False).head(10).reset_index()
             result.columns = ['Unidad', 'Observaciones']
             table_from_df(result); doc.add_paragraph()
 
@@ -963,7 +969,7 @@ def generar_word(df, df_out, config=None):
         doc.add_paragraph()
         conclusiones = []
 
-        sv = df["SistemaUnidad"].value_counts()
+        sv = df.groupby("SistemaUnidad")['CodItem_num'].sum().sort_values(ascending=False)
         top3_sist = sv.head(3)
         txt_sist = f"El sistema de {SISTEMA_LABELS.get(sv.index[0], sv.index[0])} ({sv.index[0]}) " \
                    f"concentra la mayor cantidad de observaciones con {int(sv.iloc[0])} casos " \
@@ -978,7 +984,7 @@ def generar_word(df, df_out, config=None):
         df["_unidad"] = df["Modulo"].apply(
             lambda x: None if (x is None or str(x).strip() in ("","0","nan")) else str(x).strip()
         ).fillna(df["Vehiculo"].astype(str).str.strip())
-        uv = df["_unidad"].value_counts()
+        uv = df.groupby("_unidad")['CodItem_num'].sum().sort_values(ascending=False)
         top5_u = uv.head(5)
         txt_unid = f"Las unidades con mayor cantidad de observaciones son: "
         items_u = [f"{u} ({int(c)} obs.)" for u, c in top5_u.items()]
@@ -987,24 +993,24 @@ def generar_word(df, df_out, config=None):
         conclusiones.append(txt_unid)
 
         if "Clasificacion" in df.columns and df["Clasificacion"].notna().any():
-            cv = df["Clasificacion"].value_counts()
+            cv = df.groupby("Clasificacion")['CodItem_num'].sum().sort_values(ascending=False)
             top_clasif = cv.head(3)
             items_c = [f"'{c}' con {int(n)} casos ({round(n/n_tot*100,1)}%)" for c, n in top_clasif.items()]
             conclusiones.append(f"Las clasificaciones de falla predominantes son: {', '.join(items_c)}.")
 
-        tc = int((df["Criticidad"]=="C").sum()); tr = int((df["Criticidad"]=="R").sum())
+        tc = int(df.loc[df['Criticidad']=='C', 'CodItem_num'].sum()); tr = int(df.loc[df['Criticidad']=='R', 'CodItem_num'].sum())
         conclusiones.append(
             f"Las observaciones de criticidad alta (Crítico + Rechazado) representan el "
             f"{round((tc+tr)/n_tot*100,1)}% del total ({tc} críticas y {tr} rechazadas).")
 
-        fv = df["DescAgrupada"].value_counts()
+        fv = df.groupby("DescAgrupada")['CodItem_num'].sum().sort_values(ascending=False)
         top3_falla = fv.head(3)
         items_f = [f"'{f}' ({int(n)} casos, {round(n/n_tot*100,1)}%)" for f, n in top3_falla.items()]
         conclusiones.append(f"Las fallas más recurrentes son: {', '.join(items_f)}.")
 
         if tiene_desv and not df_out.empty:
             dg = df_out.groupby("DescAgrupada").agg(
-                Cant=("Desviacion","count"),
+                Cant=("CodItem_num","sum"),
                 Prom=("Desviacion", lambda x: round(x.abs().mean(), 2)),
                 Max=("Desviacion", lambda x: round(x.abs().max(), 2)),
             ).sort_values("Max", ascending=False)
@@ -1036,18 +1042,18 @@ def generar_word(df, df_out, config=None):
 def generar_excel(df, df_out):
     """Genera un Excel con todas las tablas de análisis en hojas separadas."""
     buf = io.BytesIO()
-    n_tot = len(df)
+    n_tot = int(df['CodItem_num'].sum())
     tiene_desv = not df_out.empty and "Desviacion" in df_out.columns
 
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
         # 1. Criticidad
-        d = df["CritAmpliado"].value_counts().reset_index()
+        d = df.groupby("CritAmpliado")['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         d.columns = ["Criticidad", "Cantidad"]
         d["Porcentaje"] = (d["Cantidad"] / n_tot * 100).round(1)
         d.to_excel(writer, sheet_name="Criticidad", index=False)
 
         # 2. Sistemas
-        d = df['SistemaUnidad'].value_counts().reset_index()
+        d = df.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         d.columns = ['Código', 'Cantidad']
         d['Sistema'] = d['Código'].map(SISTEMA_LABELS).fillna(d['Código'])
         d['Porcentaje'] = (d['Cantidad'] / n_tot * 100).round(1)
@@ -1057,7 +1063,7 @@ def generar_excel(df, df_out):
         monthly_data = []
         for m in MONTH_ORDER:
             df_m = df[df['Mes'].str.upper() == m]
-            cnt = len(df_m); vehs = df_m['Vehiculo'].dropna().nunique()
+            cnt = int(df_m['CodItem_num'].sum()); vehs = df_m['Vehiculo'].dropna().nunique()
             if cnt > 0:
                 monthly_data.append({'Mes': m.title(), 'Observaciones': cnt, 'Vehículos': vehs,
                                      'Ratio Obs/Veh': round(cnt / vehs, 2) if vehs > 0 else 0})
@@ -1065,7 +1071,7 @@ def generar_excel(df, df_out):
             pd.DataFrame(monthly_data).to_excel(writer, sheet_name="Mensual", index=False)
 
         # 4. Top 15 fallas
-        d = df["DescAgrupada"].value_counts().head(15).reset_index()
+        d = df.groupby("DescAgrupada")['CodItem_num'].sum().sort_values(ascending=False).head(15).reset_index()
         d.columns = ["Descripción", "Cantidad"]
         d["Porcentaje"] = (d["Cantidad"] / n_tot * 100).round(1)
         d.to_excel(writer, sheet_name="Top 15 Fallas", index=False)
@@ -1073,7 +1079,7 @@ def generar_excel(df, df_out):
         # 5. Desvíos por categoría
         if tiene_desv:
             d = df_out.groupby("DescAgrupada").agg(
-                Cantidad=("Desviacion", "count"),
+                Cantidad=("CodItem_num", "sum"),
                 Desv_Promedio=("Desviacion", lambda x: round(x.mean(), 2)),
                 Desv_Max=("Desviacion", lambda x: round(x.abs().max(), 2)),
                 Desv_Min=("Desviacion", lambda x: round(x.abs().min(), 2)),
@@ -1086,7 +1092,7 @@ def generar_excel(df, df_out):
             for cat in ['Fuera de rango', 'Ausencia de elementos', 'Mal estado']:
                 df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat.lower()]
                 if df_cat.empty: continue
-                conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
+                conteo = df_cat.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
                 conteo.columns = ['Código', 'Cantidad']
                 conteo['Sistema'] = conteo['Código'].map(SISTEMA_LABELS).fillna(conteo['Código'])
                 conteo['Porcentaje'] = (conteo['Cantidad'] / conteo['Cantidad'].sum() * 100).round(1)
@@ -1114,12 +1120,12 @@ def generar_excel(df, df_out):
             df_mr['_unidad'] = df_mr['Modulo'].apply(
                 lambda x: None if (x is None or str(x).strip() in ('','0','nan')) else str(x).strip()
             ).fillna(df_mr['Vehiculo'].astype(str).str.strip())
-            result = df_mr['_unidad'].value_counts().head(10).reset_index()
+            result = df_mr.groupby('_unidad')['CodItem_num'].sum().sort_values(ascending=False).head(10).reset_index()
             result.columns = ['Unidad', 'Observaciones']
             result.to_excel(writer, sheet_name=f"Top10 {mr_code}", index=False)
 
         # 9. Tabla cruzada Sistema x Criticidad
-        pivot = df.pivot_table(index='CritAmpliado', columns='SistemaUnidad', aggfunc='size', fill_value=0)
+        pivot = df.pivot_table(index='CritAmpliado', columns='SistemaUnidad', values='CodItem_num', aggfunc='sum', fill_value=0)
         pivot.to_excel(writer, sheet_name="Cruzada Sist x Crit")
 
         # 10. Datos completos
@@ -1128,6 +1134,19 @@ def generar_excel(df, df_out):
     buf.seek(0)
     return buf.getvalue()
 
+
+
+# ─────────────────────────────────────────────
+# HELPERS: conteo ponderado por CodItem_num
+# ─────────────────────────────────────────────
+
+def weighted_counts(df, col):
+    """Reemplaza value_counts() sumando CodItem_num en vez de contar filas."""
+    return df.groupby(col)['CodItem_num'].sum().sort_values(ascending=False)
+
+def weighted_len(df):
+    """Reemplaza len(df) sumando CodItem_num."""
+    return int(df['CodItem_num'].sum())
 
 # ─────────────────────────────────────────────
 # SIDEBAR
@@ -1184,13 +1203,13 @@ if uploaded is None:
 with st.spinner("Procesando archivo..."):
     df, df_out = cargar_y_analizar(uploaded.read())
 
-total_obs        = len(df)
+total_obs        = int(df['CodItem_num'].sum())
 total_veh        = df['Vehiculo'].dropna().nunique()
-total_normal     = int((df['Criticidad'] == 'N').sum())
-total_crit       = int((df['Criticidad'] == 'C').sum())
-total_rech       = int((df['Criticidad'] == 'R').sum())
-total_corregidas = int((df['Criticidad'] == 'O').sum())
-total_nrc        = int((df['Criticidad'] == 'NRC').sum())
+total_normal     = int(df.loc[df['Criticidad'] == 'N', 'CodItem_num'].sum())
+total_crit       = int(df.loc[df['Criticidad'] == 'C', 'CodItem_num'].sum())
+total_rech       = int(df.loc[df['Criticidad'] == 'R', 'CodItem_num'].sum())
+total_corregidas = int(df.loc[df['Criticidad'] == 'O', 'CodItem_num'].sum())
+total_nrc        = int(df.loc[df['Criticidad'] == 'NRC', 'CodItem_num'].sum())
 total_desv       = len(df_out)
 pct_alta         = round((total_crit + total_rech) / total_obs * 100, 1) if total_obs > 0 else 0
 
@@ -1254,27 +1273,27 @@ with tab1:
 
     with col_a:
         st.markdown("#### Criticidad")
-        crit_df = df['CritAmpliado'].value_counts().reset_index()
+        crit_df = df.groupby('CritAmpliado')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         crit_df.columns = ['Criticidad','Cantidad']
         crit_df['Porcentaje'] = (crit_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(crit_df, use_container_width=True, hide_index=True)
 
         st.markdown("#### Por Modelo")
-        mod_df = df['Modelo'].value_counts().reset_index()
+        mod_df = df.groupby('Modelo')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         mod_df.columns = ['Modelo','Observaciones']
         mod_df['%'] = (mod_df['Observaciones'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(mod_df, use_container_width=True, hide_index=True)
 
     with col_b:
         st.markdown("#### Por Sistema de Unidad")
-        sist_df = df['SistemaUnidad'].value_counts().reset_index()
+        sist_df = df.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         sist_df.columns = ['Código','Cantidad']
         sist_df['Sistema'] = sist_df['Código'].map(SISTEMA_LABELS).fillna(sist_df['Código'])
         sist_df['%'] = (sist_df['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
         st.dataframe(sist_df[['Código','Sistema','Cantidad','%']], use_container_width=True, hide_index=True)
 
     st.markdown("#### Top 15 Tipos de Falla")
-    top15 = df['DescAgrupada'].value_counts().head(15).reset_index()
+    top15 = df.groupby('DescAgrupada')['CodItem_num'].sum().sort_values(ascending=False).head(15).reset_index()
     top15.columns = ['Descripción Agrupada','Cantidad']
     top15['% del total'] = (top15['Cantidad'] / total_obs * 100).round(1).astype(str) + '%'
     st.dataframe(top15, use_container_width=True, hide_index=True)
@@ -1295,7 +1314,7 @@ with tab1:
         df_base['_unidad'] = df_base['Modulo'].apply(
             lambda x: None if (x is None or str(x).strip() in ('', '0', 'nan')) else str(x).strip()
         ).fillna(df_base['Vehiculo'].astype(str).str.strip())
-        result = df_base['_unidad'].value_counts().head(10).reset_index()
+        result = df_base.groupby('_unidad')['CodItem_num'].sum().sort_values(ascending=False).head(10).reset_index()
         result.columns = ['Unidad', 'Observaciones']
         return result
 
@@ -1358,7 +1377,7 @@ with tab2:
 
     with row1_l:
         st.markdown("#### Distribución por Criticidad")
-        crit_counts = df['CritAmpliado'].value_counts()
+        crit_counts = df.groupby('CritAmpliado')['CodItem_num'].sum().sort_values(ascending=False)
         fig_pie = go.Figure(go.Pie(
             labels=crit_counts.index,
             values=crit_counts.values,
@@ -1373,7 +1392,7 @@ with tab2:
 
     with row1_r:
         st.markdown("#### Observaciones por Sistema")
-        sist_counts = df['SistemaUnidad'].value_counts().reset_index()
+        sist_counts = df.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
         sist_counts.columns = ['Sistema','Cantidad']
         sist_counts['Label'] = sist_counts['Sistema'].map(SISTEMA_LABELS).fillna(sist_counts['Sistema'])
         fig_sist = px.bar(sist_counts, x='Cantidad', y='Label', orientation='h',
@@ -1390,7 +1409,7 @@ with tab2:
     monthly = []
     for m in MONTH_ORDER:
         df_m = df[df['Mes'].str.upper() == m]
-        cnt  = len(df_m)
+        cnt  = int(df_m['CodItem_num'].sum())
         vehs = df_m['Vehiculo'].dropna().nunique()
         if cnt > 0:
             monthly.append({
@@ -1444,7 +1463,7 @@ with tab2:
         st.plotly_chart(fig_line, use_container_width=True, key="chart_line")
 
     st.markdown("#### Top 15 Tipos de Falla")
-    top15_plot = df['DescAgrupada'].value_counts().head(15).reset_index()
+    top15_plot = df.groupby('DescAgrupada')['CodItem_num'].sum().sort_values(ascending=False).head(15).reset_index()
     top15_plot.columns = ['Falla','Cantidad']
     fig_top = px.bar(top15_plot, x='Cantidad', y='Falla', orientation='h',
                      color='Cantidad', color_continuous_scale='Blues_r',
@@ -1460,7 +1479,7 @@ with tab2:
         st.markdown("#### Desvíos: Distribución por Categoría")
         st.caption("Barras = cantidad de casos · Líneas = desvío máx/prom/mín sobre eje derecho (mismas unidades que el parámetro)")
         desv_plot = df_out.groupby('DescAgrupada').agg(
-            Cantidad  =('Desviacion', 'count'),
+            Cantidad  =('CodItem_num', 'sum'),
             Desv_Max  =('Desviacion', lambda x: round(x.abs().max(),  2)),
             Desv_Prom =('Desviacion', lambda x: round(x.abs().mean(), 2)),
             Desv_Min  =('Desviacion', lambda x: round(x.abs().min(),  2)),
@@ -1589,7 +1608,7 @@ with tab3:
 
         st.markdown("##### Resumen por Categoría")
         resumen = df_filtrado.groupby('DescAgrupada').agg(
-            Cantidad=('Desvio','count'),
+            Cantidad=('CodItem_num','sum'),
             Desv_Promedio=('Desvio', lambda x: round(x.mean(),2)),
             Desv_Max=('Desvio', lambda x: round(x.abs().max(),2)),
             Criticos=('Criticidad', lambda x: (x=='C').sum())
@@ -1627,7 +1646,8 @@ with tab4:
         pivot = df.pivot_table(
             index='CritAmpliado',
             columns='SistemaUnidad',
-            aggfunc='size',
+            values='CodItem_num',
+            aggfunc='sum',
             fill_value=0
         )
         orden_crit = ['Rechazado','Critico','Normal','Corregida']
@@ -1656,7 +1676,7 @@ with tab4:
                     st.caption("Sin datos")
                     continue
 
-                conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
+                conteo = df_cat.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
                 conteo.columns = ['Sistema', 'Cantidad']
                 conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
                 conteo['%_acum'] = (conteo['Cantidad'].cumsum() / conteo['Cantidad'].sum() * 100).round(1)
@@ -1755,7 +1775,7 @@ with tab5:
     col_x     = cols_explorar[eje_x]
     col_color = cols_explorar[eje_color]
 
-    df_exp = df.groupby([col_x, col_color]).size().reset_index(name='Cantidad')
+    df_exp = df.groupby([col_x, col_color])['CodItem_num'].sum().reset_index(name='Cantidad')
 
     bar_kwargs = dict(
         x=col_x, y='Cantidad', color=col_color,
@@ -1784,7 +1804,7 @@ with tab5:
 
     with st.expander("Ver datos del gráfico"):
         pivot_exp = df_exp.pivot_table(
-            index=col_x, columns=col_color, values='Cantidad', fill_value=0
+            index=col_x, columns=col_color, values='Cantidad', aggfunc='sum', fill_value=0
         )
         st.dataframe(pivot_exp, use_container_width=True)
 
