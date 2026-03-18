@@ -1531,168 +1531,171 @@ with tab6:
         # Construir figuras solo si fueron seleccionadas
         graficos = {}
 
-        kaleido_ok = False
-        try:
-            import kaleido  # noqa
-            kaleido_ok = True
-        except ImportError:
-            if any([g_torta, g_sistemas, g_mensual, g_top15, g_desvios,
-                    g_pareto_fr, g_pareto_aus, g_pareto_mal, g_explorador]):
-                st.warning("⚠️ kaleido no está instalado. Los gráficos se omitirán. "
-                           "Instalá con: `pip install kaleido`")
+        def fig_to_png(fig, width=700, height=350):
+            """Convierte figura a PNG. Retorna None si falla (kaleido/Chrome no disponible)."""
+            try:
+                return fig.to_image(format='png', width=width, height=height, engine='kaleido')
+            except Exception:
+                try:
+                    return fig.to_image(format='png', width=width, height=height)
+                except Exception:
+                    return None
 
-        if kaleido_ok:
-            # Torta criticidad
-            if g_torta:
-                crit_counts = df['CritAmpliado'].value_counts()
-                fig = go.Figure(go.Pie(
-                    labels=crit_counts.index, values=crit_counts.values, hole=0.55,
-                    marker=dict(colors=['#4fc3f7','#ef5350','#ffa726','#66bb6a','#ab47bc']),
-                ))
-                fig.update_layout(**PLOTLY_THEME, height=350, margin=dict(t=30,b=30,l=30,r=30))
-                graficos['torta'] = fig.to_image(format='png', width=600, height=350)
+        kaleido_ok = True  # intentamos siempre; fig_to_png maneja errores
+        any_graf = any([g_torta, g_sistemas, g_mensual, g_top15, g_desvios,
+                        g_pareto_fr, g_pareto_aus, g_pareto_mal, g_explorador])
 
-            # Barras sistemas
-            if g_sistemas:
-                sc = df['SistemaUnidad'].value_counts().reset_index()
-                sc.columns = ['Sistema','Cantidad']
-                sc['Label'] = sc['Sistema'].map(SISTEMA_LABELS).fillna(sc['Sistema'])
-                fig = px.bar(sc, x='Cantidad', y='Label', orientation='h',
-                             color='Cantidad', color_continuous_scale='Blues', text='Cantidad')
-                fig.update_layout(**PLOTLY_THEME, height=350, margin=dict(t=10,b=10,l=10,r=80),
-                                  xaxis=dict(range=[0, sc['Cantidad'].max()*1.15], **AXIS_STYLE),
-                                  yaxis=dict(autorange='reversed', **AXIS_STYLE),
-                                  coloraxis_showscale=False)
-                graficos['sistemas'] = fig.to_image(format='png', width=700, height=350)
+        # Torta criticidad
+        if g_torta:
+            crit_counts = df['CritAmpliado'].value_counts()
+            fig = go.Figure(go.Pie(
+                labels=crit_counts.index, values=crit_counts.values, hole=0.55,
+                marker=dict(colors=['#4fc3f7','#ef5350','#ffa726','#66bb6a','#ab47bc']),
+            ))
+            fig.update_layout(**PLOTLY_THEME, height=350, margin=dict(t=30,b=30,l=30,r=30))
+            graficos['torta'] = fig_to_png(fig, 600, 350)
 
-            # Línea mensual
-            if g_mensual:
-                monthly = []
-                for m in MONTH_ORDER:
-                    df_m = df[df['Mes'] == m]
-                    cnt = len(df_m); vehs = df_m['Vehiculo'].dropna().nunique()
-                    if cnt > 0:
-                        monthly.append({'Mes':m,'Observaciones':cnt,'Vehículos':vehs,
-                                        'Ratio':round(cnt/vehs,2) if vehs>0 else 0})
-                if monthly:
-                    mdf = pd.DataFrame(monthly)
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(x=mdf['Mes'], y=mdf['Observaciones'],
-                                         name='Obs.', marker_color='rgba(79,195,247,0.4)',
-                                         text=mdf['Observaciones'], textposition='outside'))
-                    fig.add_trace(go.Scatter(x=mdf['Mes'], y=mdf['Ratio'],
-                                             name='Ratio Obs/Veh', mode='lines+markers',
-                                             line=dict(color='#ffa726',width=2), yaxis='y2'))
-                    fig.update_layout(**PLOTLY_THEME, height=320, barmode='overlay',
-                                      margin=dict(t=20,b=20,l=10,r=60),
-                                      xaxis=AXIS_STYLE,
-                                      yaxis=dict(title='Obs.', **AXIS_STYLE),
-                                      yaxis2=dict(title='Ratio', overlaying='y', side='right',
-                                                  gridcolor='#1e2a3a', linecolor='#2a3a50'))
-                    graficos['mensual'] = fig.to_image(format='png', width=800, height=320)
+        # Barras sistemas
+        if g_sistemas:
+            sc = df['SistemaUnidad'].value_counts().reset_index()
+            sc.columns = ['Sistema','Cantidad']
+            sc['Label'] = sc['Sistema'].map(SISTEMA_LABELS).fillna(sc['Sistema'])
+            fig = px.bar(sc, x='Cantidad', y='Label', orientation='h',
+                         color='Cantidad', color_continuous_scale='Blues', text='Cantidad')
+            fig.update_layout(**PLOTLY_THEME, height=350, margin=dict(t=10,b=10,l=10,r=80),
+                              xaxis=dict(range=[0, sc['Cantidad'].max()*1.15], **AXIS_STYLE),
+                              yaxis=dict(autorange='reversed', **AXIS_STYLE),
+                              coloraxis_showscale=False)
+            graficos['sistemas'] = fig_to_png(fig, 700, 350)
 
-            # Top 15 fallas
-            if g_top15:
-                tp = df['DescAgrupada'].value_counts().head(15).reset_index()
-                tp.columns = ['Falla','Cantidad']
-                fig = px.bar(tp, x='Cantidad', y='Falla', orientation='h',
-                             color='Cantidad', color_continuous_scale='Blues_r', text='Cantidad')
-                fig.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,r=80,l=10),
-                                  xaxis=dict(range=[0,tp['Cantidad'].max()*1.15], **AXIS_STYLE),
-                                  yaxis=dict(autorange='reversed', **AXIS_STYLE),
-                                  coloraxis_showscale=False)
-                graficos['top15'] = fig.to_image(format='png', width=800, height=420)
-
-            # Desvíos distribución
-            if g_desvios and not df_out.empty and 'Desviacion' in df_out.columns:
-                dp = df_out.groupby('DescAgrupada').agg(
-                    Cantidad=('Desviacion','count'),
-                    Desv_Max=('Desviacion', lambda x: round(x.abs().max(),2)),
-                    Desv_Prom=('Desviacion', lambda x: round(x.abs().mean(),2)),
-                ).reset_index().sort_values('Cantidad', ascending=False)
+        # Línea mensual
+        if g_mensual:
+            monthly = []
+            for m in MONTH_ORDER:
+                df_m = df[df['Mes'] == m]
+                cnt = len(df_m); vehs = df_m['Vehiculo'].dropna().nunique()
+                if cnt > 0:
+                    monthly.append({'Mes':m,'Observaciones':cnt,'Vehículos':vehs,
+                                    'Ratio':round(cnt/vehs,2) if vehs>0 else 0})
+            if monthly:
+                mdf = pd.DataFrame(monthly)
                 fig = go.Figure()
-                fig.add_trace(go.Bar(x=dp['DescAgrupada'], y=dp['Cantidad'],
-                                     name='Cantidad', marker_color='#4fc3f7',
-                                     text=dp['Cantidad'], textposition='outside', yaxis='y'))
-                fig.add_trace(go.Scatter(x=dp['DescAgrupada'], y=dp['Desv_Max'],
-                                         name='Desvío Máx.', mode='lines+markers',
-                                         line=dict(color='#ef5350',width=2), yaxis='y2'))
-                fig.add_trace(go.Scatter(x=dp['DescAgrupada'], y=dp['Desv_Prom'],
-                                         name='Desvío Prom.', mode='lines+markers',
-                                         line=dict(color='#ffa726',width=2,dash='dot'), yaxis='y2'))
-                fig.update_layout(**PLOTLY_THEME, height=400, barmode='group',
-                                  margin=dict(t=20,b=100,l=10,r=60),
+                fig.add_trace(go.Bar(x=mdf['Mes'], y=mdf['Observaciones'],
+                                     name='Obs.', marker_color='rgba(79,195,247,0.4)',
+                                     text=mdf['Observaciones'], textposition='outside'))
+                fig.add_trace(go.Scatter(x=mdf['Mes'], y=mdf['Ratio'],
+                                         name='Ratio Obs/Veh', mode='lines+markers',
+                                         line=dict(color='#ffa726',width=2), yaxis='y2'))
+                fig.update_layout(**PLOTLY_THEME, height=320, barmode='overlay',
+                                  margin=dict(t=20,b=20,l=10,r=60),
+                                  xaxis=AXIS_STYLE,
+                                  yaxis=dict(title='Obs.', **AXIS_STYLE),
+                                  yaxis2=dict(title='Ratio', overlaying='y', side='right',
+                                              gridcolor='#1e2a3a', linecolor='#2a3a50'))
+                graficos['mensual'] = fig_to_png(fig, 800, 320)
+
+        # Top 15 fallas
+        if g_top15:
+            tp = df['DescAgrupada'].value_counts().head(15).reset_index()
+            tp.columns = ['Falla','Cantidad']
+            fig = px.bar(tp, x='Cantidad', y='Falla', orientation='h',
+                         color='Cantidad', color_continuous_scale='Blues_r', text='Cantidad')
+            fig.update_layout(**PLOTLY_THEME, height=420, margin=dict(t=10,b=10,r=80,l=10),
+                              xaxis=dict(range=[0,tp['Cantidad'].max()*1.15], **AXIS_STYLE),
+                              yaxis=dict(autorange='reversed', **AXIS_STYLE),
+                              coloraxis_showscale=False)
+            graficos['top15'] = fig_to_png(fig, 800, 420)
+
+        # Desvíos distribución
+        if g_desvios and not df_out.empty and 'Desviacion' in df_out.columns:
+            dp = df_out.groupby('DescAgrupada').agg(
+                Cantidad=('Desviacion','count'),
+                Desv_Max=('Desviacion', lambda x: round(x.abs().max(),2)),
+                Desv_Prom=('Desviacion', lambda x: round(x.abs().mean(),2)),
+            ).reset_index().sort_values('Cantidad', ascending=False)
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=dp['DescAgrupada'], y=dp['Cantidad'],
+                                 name='Cantidad', marker_color='#4fc3f7',
+                                 text=dp['Cantidad'], textposition='outside', yaxis='y'))
+            fig.add_trace(go.Scatter(x=dp['DescAgrupada'], y=dp['Desv_Max'],
+                                     name='Desvío Máx.', mode='lines+markers',
+                                     line=dict(color='#ef5350',width=2), yaxis='y2'))
+            fig.add_trace(go.Scatter(x=dp['DescAgrupada'], y=dp['Desv_Prom'],
+                                     name='Desvío Prom.', mode='lines+markers',
+                                     line=dict(color='#ffa726',width=2,dash='dot'), yaxis='y2'))
+            fig.update_layout(**PLOTLY_THEME, height=400, barmode='group',
+                              margin=dict(t=20,b=100,l=10,r=60),
+                              xaxis=dict(tickangle=-35, **AXIS_STYLE),
+                              yaxis=dict(title='Cantidad', **AXIS_STYLE),
+                              yaxis2=dict(title='Desvío', overlaying='y', side='right',
+                                          gridcolor='#1e2a3a', linecolor='#2a3a50'))
+            graficos['desvios'] = fig_to_png(fig, 900, 400)
+
+        # Paretos
+        CLASIF_COLORS = {'fuera de rango':'#ef5350','ausencia de elementos':'#ffa726','mal estado':'#4fc3f7'}
+        pareto_cfg = [
+            ('pareto_fr',  'fuera de rango',        g_pareto_fr),
+            ('pareto_aus', 'ausencia de elementos', g_pareto_aus),
+            ('pareto_mal', 'mal estado',            g_pareto_mal),
+        ]
+        if 'Clasificacion' in df.columns:
+            for key, cat, sel in pareto_cfg:
+                if not sel: continue
+                df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat]
+                if df_cat.empty: continue
+                conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
+                conteo.columns = ['Sistema','Cantidad']
+                conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
+                conteo['%_acum'] = (conteo['Cantidad'].cumsum()/conteo['Cantidad'].sum()*100).round(1)
+                color = CLASIF_COLORS.get(cat, '#4fc3f7')
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=conteo['Label'], y=conteo['Cantidad'],
+                                     marker_color=color, text=conteo['Cantidad'],
+                                     textposition='outside', yaxis='y'))
+                fig.add_trace(go.Scatter(x=conteo['Label'], y=conteo['%_acum'],
+                                         mode='lines+markers',
+                                         line=dict(color='#ffffff',width=2), yaxis='y2'))
+                fig.add_hline(y=80, line_dash='dash', line_color='#ffa726',
+                              annotation_text='80%', yref='y2')
+                fig.update_layout(**PLOTLY_THEME, height=350,
+                                  margin=dict(t=30,b=60,l=10,r=50),
                                   xaxis=dict(tickangle=-35, **AXIS_STYLE),
                                   yaxis=dict(title='Cantidad', **AXIS_STYLE),
-                                  yaxis2=dict(title='Desvío', overlaying='y', side='right',
-                                              gridcolor='#1e2a3a', linecolor='#2a3a50'))
-                graficos['desvios'] = fig.to_image(format='png', width=900, height=400)
+                                  yaxis2=dict(title='% Acum.', overlaying='y', side='right',
+                                              range=[0,110], gridcolor='#1e2a3a', linecolor='#2a3a50'),
+                                  title=dict(text=cat.title(), font=dict(color='#e8eaf0')))
+                graficos[key] = fig_to_png(fig, 700, 350)
 
-            # Paretos
-            CLASIF_COLORS = {'fuera de rango':'#ef5350','ausencia de elementos':'#ffa726','mal estado':'#4fc3f7'}
-            pareto_cfg = [
-                ('pareto_fr',  'fuera de rango',        g_pareto_fr),
-                ('pareto_aus', 'ausencia de elementos', g_pareto_aus),
-                ('pareto_mal', 'mal estado',            g_pareto_mal),
-            ]
-            if 'Clasificacion' in df.columns:
-                for key, cat, sel in pareto_cfg:
-                    if not sel: continue
-                    df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat]
-                    if df_cat.empty: continue
-                    conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
-                    conteo.columns = ['Sistema','Cantidad']
-                    conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
-                    conteo['%_acum'] = (conteo['Cantidad'].cumsum()/conteo['Cantidad'].sum()*100).round(1)
-                    color = CLASIF_COLORS.get(cat, '#4fc3f7')
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(x=conteo['Label'], y=conteo['Cantidad'],
-                                         marker_color=color, text=conteo['Cantidad'],
-                                         textposition='outside', yaxis='y'))
-                    fig.add_trace(go.Scatter(x=conteo['Label'], y=conteo['%_acum'],
-                                             mode='lines+markers',
-                                             line=dict(color='#ffffff',width=2), yaxis='y2'))
-                    fig.add_hline(y=80, line_dash='dash', line_color='#ffa726',
-                                  annotation_text='80%', yref='y2')
-                    fig.update_layout(**PLOTLY_THEME, height=350,
-                                      margin=dict(t=30,b=60,l=10,r=50),
-                                      xaxis=dict(tickangle=-35, **AXIS_STYLE),
-                                      yaxis=dict(title='Cantidad', **AXIS_STYLE),
-                                      yaxis2=dict(title='% Acum.', overlaying='y', side='right',
-                                                  range=[0,110], gridcolor='#1e2a3a', linecolor='#2a3a50'),
-                                      title=dict(text=cat.title(), font=dict(color='#e8eaf0')))
-                    graficos[key] = fig.to_image(format='png', width=700, height=350)
-
-            # Explorador libre (usa la última configuración del tab5)
-            if g_explorador:
-                try:
-                    col_x_e     = st.session_state.get('ex_x',     'Sistema')
-                    col_color_e = st.session_state.get('ex_col',    'Criticidad')
-                    tipo_e      = st.session_state.get('ex_tipo',   'Barras agrupadas')
-                    cx  = {'Sistema':'SistemaUnidad','Criticidad':'CritAmpliado','Tipo MR':'MR',
-                           'Modelo':'Modelo','Servicio':'Servicio','Mes':'Mes',
-                           'Clasificación':'Clasificacion'}.get(col_x_e, 'SistemaUnidad')
-                    cc  = {'Sistema':'SistemaUnidad','Criticidad':'CritAmpliado','Tipo MR':'MR',
-                           'Modelo':'Modelo','Servicio':'Servicio','Mes':'Mes',
-                           'Clasificación':'Clasificacion'}.get(col_color_e, 'CritAmpliado')
-                    df_e = df.groupby([cx, cc]).size().reset_index(name='Cantidad')
-                    bk = dict(x=cx, y='Cantidad', color=cc, text_auto=True,
-                              color_discrete_sequence=['#4fc3f7','#ef5350','#ffa726',
-                                                       '#66bb6a','#ab47bc','#26c6da'])
-                    if tipo_e == "Barras apiladas %":
-                        bk['barmode'] = 'stack'; bk['barnorm'] = 'percent'
-                    elif tipo_e == "Barras apiladas":
-                        bk['barmode'] = 'stack'
-                    else:
-                        bk['barmode'] = 'group'
-                    fig = px.bar(df_e, **bk)
-                    fig.update_layout(**PLOTLY_THEME, height=400,
-                                      margin=dict(t=20,b=80,l=10,r=10),
-                                      xaxis=dict(tickangle=-30, **AXIS_STYLE),
-                                      yaxis=AXIS_STYLE)
-                    graficos['explorador'] = fig.to_image(format='png', width=800, height=400)
-                except Exception:
-                    pass
+        # Explorador libre (usa la última configuración del tab5)
+        if g_explorador:
+            try:
+                col_x_e     = st.session_state.get('ex_x',     'Sistema')
+                col_color_e = st.session_state.get('ex_col',    'Criticidad')
+                tipo_e      = st.session_state.get('ex_tipo',   'Barras agrupadas')
+                cx  = {'Sistema':'SistemaUnidad','Criticidad':'CritAmpliado','Tipo MR':'MR',
+                       'Modelo':'Modelo','Servicio':'Servicio','Mes':'Mes',
+                       'Clasificación':'Clasificacion'}.get(col_x_e, 'SistemaUnidad')
+                cc  = {'Sistema':'SistemaUnidad','Criticidad':'CritAmpliado','Tipo MR':'MR',
+                       'Modelo':'Modelo','Servicio':'Servicio','Mes':'Mes',
+                       'Clasificación':'Clasificacion'}.get(col_color_e, 'CritAmpliado')
+                df_e = df.groupby([cx, cc]).size().reset_index(name='Cantidad')
+                bk = dict(x=cx, y='Cantidad', color=cc, text_auto=True,
+                          color_discrete_sequence=['#4fc3f7','#ef5350','#ffa726',
+                                                   '#66bb6a','#ab47bc','#26c6da'])
+                if tipo_e == "Barras apiladas %":
+                    bk['barmode'] = 'stack'; bk['barnorm'] = 'percent'
+                elif tipo_e == "Barras apiladas":
+                    bk['barmode'] = 'stack'
+                else:
+                    bk['barmode'] = 'group'
+                fig = px.bar(df_e, **bk)
+                fig.update_layout(**PLOTLY_THEME, height=400,
+                                  margin=dict(t=20,b=80,l=10,r=10),
+                                  xaxis=dict(tickangle=-30, **AXIS_STYLE),
+                                  yaxis=AXIS_STYLE)
+                graficos['explorador'] = fig_to_png(fig, 800, 400)
+            except Exception:
+                pass
 
         config = dict(
             codigo=hdr_codigo, version=hdr_version, linea=hdr_linea,
