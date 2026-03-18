@@ -328,111 +328,200 @@ def kpi(label, value, variant="default"):
     </div>"""
 
 
+
 # ─────────────────────────────────────────────
 # GENERACIÓN DE WORD (descarga)
 # ─────────────────────────────────────────────
 
 def generar_word(df, df_out, config=None):
-    from docx.shared import Cm
+    """
+    Genera el informe Word con encabezado institucional, tablas ajustadas a A4
+    y secciones configurables vía el dict config.
+    """
+    from docx.shared import Cm, Mm, Twips
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
+    from docx.enum.table import WD_TABLE_ALIGNMENT
     from datetime import date
 
     if config is None:
         config = {}
 
-    # Defaults
-    inc_crit     = config.get('inc_crit',     True)
-    inc_top15    = config.get('inc_top15',    True)
-    inc_desvios  = config.get('inc_desvios',  True)
-    inc_detalle  = config.get('inc_detalle',  True)
-    inc_graficos = config.get('inc_graficos', False)
-    inc_concl    = config.get('inc_concl',    True)
-    hdr_codigo   = config.get('codigo',  '') or ''
-    hdr_version  = config.get('version', 'v1.0') or 'v1.0'
-    hdr_linea    = config.get('linea',   '') or ''
-    hdr_subger   = config.get('subger',  'Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)') or ''
-    logo_bytes   = config.get('logo',    None)
+    # ── Flags de secciones ──
+    inc_crit      = config.get('inc_crit',     True)
+    inc_top15     = config.get('inc_top15',    True)
+    inc_desvios   = config.get('inc_desvios',  True)
+    inc_detalle   = config.get('inc_detalle',  True)
+    inc_concl     = config.get('inc_concl',    True)
+    hdr_codigo    = config.get('codigo',  '') or ''
+    hdr_version   = config.get('version', 'v1.0') or 'v1.0'
+    hdr_linea     = config.get('linea',   '') or ''
+    hdr_subger    = config.get('subger',  'Sub Gerencia de Programación y Seguimiento de Mantenimiento de Material Rodante (SPySM)') or ''
+    logo_bytes    = config.get('logo',    None)
 
     doc = Document()
 
-    # ── Configuración de página A4 ──
-    from docx.shared import Mm
+    # ── A4, márgenes 20mm lados, 25mm arriba, 20mm abajo ──
     section = doc.sections[0]
-    section.page_width  = Mm(210)
-    section.page_height = Mm(297)
-    section.top_margin    = Mm(25)
+    section.page_width    = Mm(210)
+    section.page_height   = Mm(297)
+    section.top_margin    = Mm(30)   # espacio para encabezado
     section.bottom_margin = Mm(20)
     section.left_margin   = Mm(20)
     section.right_margin  = Mm(20)
+    section.header_distance = Mm(5)
 
-    # ── Estilos ──
-    style = doc.styles['Normal']
-    style.font.name = 'Arial'
-    style.font.size = Pt(10)
+    # A4 con márgenes 20mm c/u → 170mm de ancho de contenido
+    # En DXA: 170mm × 56.69 ≈ 9637 → usamos 9638
+    PAGE_W = 9638   # DXA — ancho de contenido
+    # Para que el encabezado llegue hasta los bordes físicos (ignorando márgenes)
+    # encabezado = 210mm - 0 = 11906 DXA aprox
+    HDR_W  = 11906  # DXA — ancho de página completo
 
-    # Ancho de contenido en DXA (1 DXA = 1/20 pt; A4 con márgenes 20mm c/u = 170mm)
-    PAGE_W_DXA = int((210 - 40) * 56.69)  # ≈ 9639 DXA
-
-    # ── ENCABEZADO ──
-    header = section.header
-    # Limpiar párrafo por defecto
-    for p in header.paragraphs:
-        p.clear()
-
-    hdr_tbl = header.add_table(rows=2, cols=3, width=Mm(170))
-    hdr_tbl.style = 'Table Grid'
-
-    def set_cell_bg(cell, hex_color):
+    # ── Helpers XML ──
+    def set_shd(cell, fill_hex):
         tc   = cell._tc
         tcPr = tc.get_or_add_tcPr()
-        shd  = OxmlElement('w:shd')
+        # eliminar shd previo si existe
+        for old in tcPr.findall(qn('w:shd')):
+            tcPr.remove(old)
+        shd = OxmlElement('w:shd')
         shd.set(qn('w:val'),   'clear')
         shd.set(qn('w:color'), 'auto')
-        shd.set(qn('w:fill'),  hex_color)
+        shd.set(qn('w:fill'),  fill_hex)
         tcPr.append(shd)
 
-    def hdr_cell_text(cell, text, bold=False, size=9, color="000000", align=WD_ALIGN_PARAGRAPH.LEFT):
-        cell.paragraphs[0].clear()
-        run = cell.paragraphs[0].add_run(text)
-        run.bold = bold
+    def set_cell_width(cell, width_dxa):
+        tc   = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        for old in tcPr.findall(qn('w:tcW')):
+            tcPr.remove(old)
+        tcW = OxmlElement('w:tcW')
+        tcW.set(qn('w:w'),    str(width_dxa))
+        tcW.set(qn('w:type'), 'dxa')
+        tcPr.insert(0, tcW)
+
+    def set_tbl_width(tbl, width_dxa):
+        tblPr = tbl._tbl.tblPr
+        for old in tblPr.findall(qn('w:tblW')):
+            tblPr.remove(old)
+        tblW = OxmlElement('w:tblW')
+        tblW.set(qn('w:w'),    str(width_dxa))
+        tblW.set(qn('w:type'), 'dxa')
+        tblPr.append(tblW)
+
+    def remove_borders(tbl):
+        """Quita todos los bordes de una tabla."""
+        tblPr = tbl._tbl.tblPr
+        tblBorders = OxmlElement('w:tblBorders')
+        for side in ['top','left','bottom','right','insideH','insideV']:
+            b = OxmlElement(f'w:{side}')
+            b.set(qn('w:val'),   'none')
+            b.set(qn('w:sz'),    '0')
+            b.set(qn('w:space'), '0')
+            b.set(qn('w:color'), 'auto')
+            tblBorders.append(b)
+        tblPr.append(tblBorders)
+
+    def set_row_height(row, height_cm, exact=True):
+        tr = row._tr
+        trPr = tr.get_or_add_trPr()
+        trHeight = OxmlElement('w:trHeight')
+        trHeight.set(qn('w:val'),  str(int(height_cm * 567)))  # 1cm = 567 DXA
+        trHeight.set(qn('w:hRule'), 'exact' if exact else 'atLeast')
+        trPr.append(trHeight)
+
+    def para_in_cell(cell, text, bold=False, size=9, color="000000",
+                     align=WD_ALIGN_PARAGRAPH.LEFT, italic=False):
+        p = cell.paragraphs[0]
+        p.clear()
+        p.alignment = align
+        run = p.add_run(text)
+        run.bold   = bold
+        run.italic = italic
         run.font.size = Pt(size)
         run.font.name = 'Arial'
         run.font.color.rgb = RGBColor.from_string(color)
-        cell.paragraphs[0].alignment = align
+        return p
 
-    # Fila 0: banner/logo ocupa col 0-1, datos en col 2
-    banner_cell = hdr_tbl.cell(0, 0).merge(hdr_tbl.cell(0, 1))
+    # ────────────────────────────────────────────
+    # ENCABEZADO — tabla sin bordes, ancho de página
+    # ────────────────────────────────────────────
+    header = section.header
+    # Limpiar párrafos por defecto
+    for p in header.paragraphs:
+        p._element.getparent().remove(p._element)
+
+    # Negativo de margen para que la tabla llegue al borde físico
+    neg_margin = OxmlElement('w:tblInd')
+    # Tabla: 1 fila, 2 columnas (banner | datos)
+    hdr_tbl = header.add_table(rows=1, cols=2)
+    hdr_tbl.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+    # Quitar bordes
+    remove_borders(hdr_tbl)
+    # Ancho total = ancho de página completo
+    set_tbl_width(hdr_tbl, HDR_W)
+    # Alto fijo ~ 2.5cm
+    set_row_height(hdr_tbl.rows[0], 2.5, exact=True)
+
+    # Columna 0: banner/logo (70% del ancho)
+    W_BANNER = int(HDR_W * 0.70)
+    W_DATA   = HDR_W - W_BANNER
+
+    cell_banner = hdr_tbl.cell(0, 0)
+    cell_data   = hdr_tbl.cell(0, 1)
+    set_cell_width(cell_banner, W_BANNER)
+    set_cell_width(cell_data,   W_DATA)
+
+    # Banner
     if logo_bytes:
-        banner_cell.paragraphs[0].clear()
-        run_img = banner_cell.paragraphs[0].add_run()
-        run_img.add_picture(io.BytesIO(logo_bytes), width=Mm(110))
+        set_shd(cell_banner, 'FFFFFF')
+        cell_banner.paragraphs[0].clear()
+        cell_banner.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+        run_img = cell_banner.paragraphs[0].add_run()
+        # Escalar imagen para que quepa en 2.5cm de alto
+        run_img.add_picture(io.BytesIO(logo_bytes), height=Cm(2.3))
     else:
-        set_cell_bg(banner_cell, '1F3864')
-        hdr_cell_text(banner_cell, 'TRENES ARGENTINOS — PISE', bold=True, size=11, color='FFFFFF', align=WD_ALIGN_PARAGRAPH.CENTER)
+        set_shd(cell_banner, '1F3864')
+        para_in_cell(cell_banner, 'TRENES ARGENTINOS — PISE',
+                     bold=True, size=13, color='FFFFFF',
+                     align=WD_ALIGN_PARAGRAPH.CENTER)
 
-    data_cell = hdr_tbl.cell(0, 2)
-    set_cell_bg(data_cell, 'D5E8F0')
-    data_cell.paragraphs[0].clear()
-    for line, bold in [
-        (f"Código: {hdr_codigo or '____________'}", False),
-        (f"Versión: {hdr_version}", False),
-        (f"Fecha: {date.today().strftime('%d/%m/%Y')}", False),
-    ]:
-        p = data_cell.add_paragraph()
-        run = p.add_run(line)
-        run.bold = bold
-        run.font.size = Pt(8)
-        run.font.name = 'Arial'
+    # Datos — tabla interna sin bordes dentro de cell_data
+    set_shd(cell_data, 'EBF3FB')
+    cell_data.paragraphs[0].clear()
 
-    # Fila 1: subgerencia + línea
-    subger_cell = hdr_tbl.cell(1, 0).merge(hdr_tbl.cell(1, 1))
-    set_cell_bg(subger_cell, 'EBF3FB')
-    hdr_cell_text(subger_cell, hdr_subger, bold=False, size=8, color='1F3864')
+    # Sub-tabla con los campos
+    sub = cell_data.add_table(rows=4, cols=2)
+    remove_borders(sub)
+    set_tbl_width(sub, W_DATA)
+    sub_col = W_DATA // 2
 
-    linea_cell = hdr_tbl.cell(1, 2)
-    set_cell_bg(linea_cell, 'EBF3FB')
-    hdr_cell_text(linea_cell, hdr_linea or '', bold=False, size=8, color='1F3864', align=WD_ALIGN_PARAGRAPH.CENTER)
+    fields = [
+        ('Código:',  hdr_codigo  or '___________'),
+        ('Versión:', hdr_version),
+        ('Fecha:',   date.today().strftime('%d/%m/%Y')),
+        ('Línea:',   hdr_linea   or '___________'),
+    ]
+    for i, (label, value) in enumerate(fields):
+        lc = sub.cell(i, 0)
+        vc = sub.cell(i, 1)
+        set_cell_width(lc, sub_col)
+        set_cell_width(vc, sub_col)
+        set_shd(lc, 'EBF3FB')
+        set_shd(vc, 'EBF3FB')
+        para_in_cell(lc, label, bold=True, size=8, color='1F3864')
+        para_in_cell(vc, value, bold=False, size=8, color='333333')
+
+    # Subgerencia — párrafo debajo de la tabla del encabezado
+    p_subger = header.add_paragraph()
+    p_subger.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run_sg = p_subger.add_run(hdr_subger)
+    run_sg.font.size = Pt(7)
+    run_sg.font.name = 'Arial'
+    run_sg.font.italic = True
+    run_sg.font.color.rgb = RGBColor(0x1F, 0x38, 0x64)
 
     # ── PIE DE PÁGINA ──
     footer = section.footer
@@ -440,90 +529,85 @@ def generar_word(df, df_out, config=None):
         p.clear()
     fp = footer.paragraphs[0]
     fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    run_f = fp.add_run(f"Generado el {date.today().strftime('%d/%m/%Y')}  —  Pág. ")
+    run_f = fp.add_run(f"SPySM  —  Generado el {date.today().strftime('%d/%m/%Y')}  —  Pág. ")
     run_f.font.size = Pt(8)
     run_f.font.name = 'Arial'
     run_f.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
-    # Número de página automático
-    fld = OxmlElement('w:fldChar')
-    fld.set(qn('w:fldCharType'), 'begin')
-    fp.runs[-1]._r.append(fld)
-    instrText = OxmlElement('w:instrText')
-    instrText.text = 'PAGE'
-    fld2 = OxmlElement('w:fldChar')
-    fld2.set(qn('w:fldCharType'), 'end')
-    fp.add_run()._r.extend([fld, instrText, fld2])
 
-    # ── TÍTULO ──
+    # ── Estilos generales ──
+    doc.styles['Normal'].font.name = 'Arial'
+    doc.styles['Normal'].font.size = Pt(10)
+
+    # ── FUNCIONES HELPERS ──
+    def add_section_heading(title):
+        h = doc.add_heading(title, level=1)
+        h.runs[0].font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+        h.runs[0].font.name = 'Arial'
+
+    def table_from_df(dataframe):
+        """
+        Tabla ajustada al ancho exacto de la página.
+        Columnas distribuidas proporcionalmente.
+        Encabezado azul oscuro, filas alternas gris/blanco.
+        Sin bordes internos visibles (solo externo fino).
+        """
+        n_cols  = len(dataframe.columns)
+        col_w   = PAGE_W // n_cols
+
+        t = doc.add_table(rows=1, cols=n_cols)
+        t.style  = 'Table Grid'
+        t.autofit = False
+        set_tbl_width(t, PAGE_W)
+
+        # Encabezado
+        for i, col_name in enumerate(dataframe.columns):
+            cell = t.rows[0].cells[i]
+            set_cell_width(cell, col_w)
+            set_shd(cell, '1F3864')
+            para_in_cell(cell, str(col_name),
+                         bold=True, size=9, color='FFFFFF',
+                         align=WD_ALIGN_PARAGRAPH.CENTER)
+
+        # Filas de datos
+        for row_idx, (_, row) in enumerate(dataframe.iterrows()):
+            fill = 'F2F2F2' if row_idx % 2 == 0 else 'FFFFFF'
+            tr   = t.add_row()
+            for i, val in enumerate(row):
+                cell = tr.cells[i]
+                set_cell_width(cell, col_w)
+                set_shd(cell, fill)
+                txt = '' if pd.isna(val) else str(val)
+                para_in_cell(cell, txt, size=9,
+                             align=WD_ALIGN_PARAGRAPH.CENTER)
+        return t
+
+    # Numerador automático de secciones
+    sec_num = [0]
+    def next_sec(title):
+        sec_num[0] += 1
+        add_section_heading(f"{sec_num[0]}. {title}")
+
+    # ────────────────────────────────────────────
+    # TÍTULO
+    # ────────────────────────────────────────────
     doc.add_paragraph()
     titulo = doc.add_heading('Informe de Fallas y Desvíos', 0)
     titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     titulo.runs[0].font.color.rgb = RGBColor(0x1F, 0x38, 0x64)
-    doc.add_paragraph(
-        f"Período analizado: {df['Mes'].dropna().nunique()} meses  "
+    titulo.runs[0].font.name = 'Arial'
+
+    p_meta = doc.add_paragraph(
+        f"Período: {df['Mes'].dropna().nunique()} meses  "
         f"|  Vehículos inspeccionados: {df['Vehiculo'].dropna().nunique()}  "
         f"|  Total observaciones: {len(df)}"
     )
+    p_meta.runs[0].font.size = Pt(10)
     doc.add_paragraph()
 
-    def add_section(title):
-        h = doc.add_heading(title, level=1)
-        h.runs[0].font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+    # ────────────────────────────────────────────
+    # SECCIONES
+    # ────────────────────────────────────────────
 
-    def table_from_df(dataframe):
-        """Tabla ajustada al ancho de página, columnas distribuidas proporcionalmente."""
-        n_cols = len(dataframe.columns)
-        col_w  = PAGE_W_DXA // n_cols
-        t = doc.add_table(rows=1, cols=n_cols)
-        t.style = 'Table Grid'
-        t.autofit = False
-        # Encabezado
-        hdr_row = t.rows[0]
-        for i, col in enumerate(dataframe.columns):
-            cell = hdr_row.cells[i]
-            cell.width = col_w
-            cell.paragraphs[0].clear()
-            run = cell.paragraphs[0].add_run(str(col))
-            run.bold = True
-            run.font.size = Pt(9)
-            run.font.name = 'Arial'
-            run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            # Fondo azul encabezado
-            tc   = cell._tc
-            tcPr = tc.get_or_add_tcPr()
-            shd  = OxmlElement('w:shd')
-            shd.set(qn('w:val'),   'clear')
-            shd.set(qn('w:color'), 'auto')
-            shd.set(qn('w:fill'),  '1F3864')
-            tcPr.append(shd)
-        # Filas de datos
-        for row_idx, (_, row) in enumerate(dataframe.iterrows()):
-            row_cells = t.add_row().cells
-            fill = 'F2F2F2' if row_idx % 2 == 0 else 'FFFFFF'
-            for i, val in enumerate(row):
-                cell = row_cells[i]
-                cell.width = col_w
-                cell.paragraphs[0].clear()
-                run = cell.paragraphs[0].add_run(str(val) if pd.notna(val) else '')
-                run.font.size = Pt(9)
-                run.font.name = 'Arial'
-                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                tc   = cell._tc
-                tcPr = tc.get_or_add_tcPr()
-                shd  = OxmlElement('w:shd')
-                shd.set(qn('w:val'),   'clear')
-                shd.set(qn('w:color'), 'auto')
-                shd.set(qn('w:fill'),  fill)
-                tcPr.append(shd)
-        return t
-
-    sec_num = [0]
-    def next_sec(title):
-        sec_num[0] += 1
-        add_section(f"{sec_num[0]}. {title}")
-
-    # Resumen criticidad
     if inc_crit:
         next_sec("Distribución por Criticidad")
         crit_df = df['CritAmpliado'].value_counts().reset_index()
@@ -532,158 +616,144 @@ def generar_word(df, df_out, config=None):
         table_from_df(crit_df)
         doc.add_paragraph()
 
-    # Top fallas
     if inc_top15:
         next_sec("Top 15 Tipos de Falla")
         top_df = df['DescAgrupada'].value_counts().head(15).reset_index()
         top_df.columns = ['Descripción', 'Cantidad']
+        top_df['% del total'] = (top_df['Cantidad'] / len(df) * 100).round(1).astype(str) + '%'
         table_from_df(top_df)
         doc.add_paragraph()
 
-    # Desvíos y detalle — solo si el archivo tiene columnas de referencia
     tiene_desv = not df_out.empty and 'Desviacion' in df_out.columns
 
-    if tiene_desv and (inc_desvios or inc_detalle):
-        if inc_desvios:
-            next_sec("Resumen de Desvíos por Categoría")
-            desv_sum = df_out.groupby('DescAgrupada').agg(
-                Cantidad=('Desviacion','count'),
-                Desv_Promedio=('Desviacion', lambda x: round(x.mean(),2)),
-                Desv_Max_Abs=('Desviacion', lambda x: round(x.abs().max(),2)),
-                Criticos=('Criticidad', lambda x: (x=='C').sum())
-            ).reset_index().sort_values('Cantidad', ascending=False)
-            desv_sum.columns = ['Categoría','Cantidad','Desvío Prom.','Desvío Máx.','Críticos']
-            table_from_df(desv_sum)
-            doc.add_paragraph()
+    if tiene_desv and inc_desvios:
+        next_sec("Resumen de Desvíos por Categoría")
+        desv_sum = df_out.groupby('DescAgrupada').agg(
+            Cantidad     =('Desviacion', 'count'),
+            Desv_Promedio=('Desviacion', lambda x: round(x.mean(),   2)),
+            Desv_Max_Abs =('Desviacion', lambda x: round(x.abs().max(), 2)),
+            Criticos     =('Criticidad', lambda x: (x=='C').sum())
+        ).reset_index().sort_values('Cantidad', ascending=False)
+        desv_sum.columns = ['Categoría','Cantidad','Desvío Prom.','Desvío Máx.','Críticos']
+        table_from_df(desv_sum)
+        doc.add_paragraph()
 
-        if inc_detalle:
-            next_sec("Detalle de Observaciones Fuera de Parámetro")
-        # Columnas base siempre presentes
-        cols_det = ['Vehiculo','Mes','SistemaUnidad','Descripcion','Criticidad']
-        rename_det = ['Vehículo','Mes','Sistema','Descripción','Crit.']
-        # Agregar columnas de referencia solo si existen
+    if tiene_desv and inc_detalle:
+        next_sec("Detalle de Observaciones Fuera de Parámetro")
+        cols_det    = ['Vehiculo','Mes','SistemaUnidad','Descripcion','Criticidad']
+        rename_det  = ['Vehículo','Mes','Sistema','Descripción','Crit.']
         for col in ['RefMin','RefMax','ValorRelevado','Desviacion']:
             if col in df_out.columns:
                 cols_det.insert(-1, col)
-                rename_det.insert(-1, {'RefMin':'Ref Min','RefMax':'Ref Max',
-                                       'ValorRelevado':'Relevado','Desviacion':'Desvío'}[col])
+                rename_det.insert(-1, {
+                    'RefMin':'Ref Min','RefMax':'Ref Max',
+                    'ValorRelevado':'Relevado','Desviacion':'Desvío'
+                }[col])
         det = df_out[cols_det].copy()
         det.columns = rename_det
-        if 'Desvío' in det.columns:
-            det['Desvío'] = det['Desvío'].round(2)
-        if 'Relevado' in det.columns:
-            det['Relevado'] = det['Relevado'].round(1)
+        if 'Desvío'   in det.columns: det['Desvío']   = det['Desvío'].round(2)
+        if 'Relevado' in det.columns: det['Relevado'] = det['Relevado'].round(1)
         table_from_df(det)
-    else:
-        add_section("3. Observaciones sin valores de referencia")
+        doc.add_paragraph()
+
+    if not tiene_desv and (inc_desvios or inc_detalle):
+        next_sec("Observaciones sin valores de referencia")
         doc.add_paragraph(
             "Este archivo no contiene columnas de valores de referencia paramétrica. "
             "El análisis de desvíos no está disponible para este formato."
         )
 
-    # ── CONCLUSIONES DINÁMICAS ──
+    # ────────────────────────────────────────────
+    # CONCLUSIONES DINÁMICAS
+    # ────────────────────────────────────────────
     if inc_concl:
         next_sec("Conclusiones y Observaciones Generales")
         doc.add_paragraph(
-        "Del análisis de la totalidad de las inspecciones estáticas realizadas "
-        "durante el período se extraen las siguientes conclusiones:"
-    )
-    doc.add_paragraph()
+            "Del análisis de la totalidad de las inspecciones estáticas realizadas "
+            "durante el período se extraen las siguientes conclusiones:"
+        )
+        doc.add_paragraph()
 
-    conclusiones = []
-    n = len(df)
+        conclusiones = []
+        n = len(df)
 
-    # 1. Sistema con más observaciones
-    sist_top_cod  = df['SistemaUnidad'].value_counts().index[0]
-    sist_top_n    = int(df['SistemaUnidad'].value_counts().iloc[0])
-    sist_top_lbl  = SISTEMA_LABELS.get(sist_top_cod, sist_top_cod)
-    sist_top_pct  = round(sist_top_n / n * 100, 1)
-    conclusiones.append(
-        f"El sistema de {sist_top_lbl} ({sist_top_cod}) concentra la mayor cantidad de "
-        f"observaciones con {sist_top_n} casos ({sist_top_pct}% del total), lo que indica "
-        f"que es el área de mayor desgaste y atención requerida."
-    )
-
-    # 2. Vehículo o módulo con más fallas
-    df['_unidad'] = df['Modulo'].apply(
-        lambda x: None if (x is None or str(x).strip() in ('', '0', 'nan')) else str(x).strip()
-    ).fillna(df['Vehiculo'].astype(str).str.strip())
-    unidad_top   = df['_unidad'].value_counts().index[0]
-    unidad_top_n = int(df['_unidad'].value_counts().iloc[0])
-    conclusiones.append(
-        f"La unidad con mayor cantidad de observaciones es {unidad_top} con {unidad_top_n} casos, "
-        f"siendo candidata prioritaria para revisión integral."
-    )
-
-    # 3. Clasificación dominante
-    if 'Clasificacion' in df.columns and df['Clasificacion'].notna().any():
-        clasif_top   = df['Clasificacion'].value_counts().index[0]
-        clasif_top_n = int(df['Clasificacion'].value_counts().iloc[0])
-        clasif_top_pct = round(clasif_top_n / n * 100, 1)
+        sist_top_cod = df['SistemaUnidad'].value_counts().index[0]
+        sist_top_n   = int(df['SistemaUnidad'].value_counts().iloc[0])
+        sist_top_lbl = SISTEMA_LABELS.get(sist_top_cod, sist_top_cod)
+        sist_top_pct = round(sist_top_n / n * 100, 1)
         conclusiones.append(
-            f"La clasificación de falla predominante es '{clasif_top}' con {clasif_top_n} casos "
-            f"({clasif_top_pct}% del total), seguida por "
-            f"'{df['Clasificacion'].value_counts().index[1] if len(df['Clasificacion'].value_counts()) > 1 else '-'}' "
-            f"con {int(df['Clasificacion'].value_counts().iloc[1]) if len(df['Clasificacion'].value_counts()) > 1 else 0} casos."
+            f"El sistema de {sist_top_lbl} ({sist_top_cod}) concentra la mayor cantidad de "
+            f"observaciones con {sist_top_n} casos ({sist_top_pct}% del total), lo que indica "
+            f"que es el área de mayor desgaste y atención requerida."
         )
 
-    # 4. % criticidad alta
-    total_c = int((df['Criticidad'] == 'C').sum())
-    total_r = int((df['Criticidad'] == 'R').sum())
-    pct_cr  = round((total_c + total_r) / n * 100, 1)
-    conclusiones.append(
-        f"Las observaciones de criticidad alta (Crítico + Rechazado) representan el {pct_cr}% "
-        f"del total ({total_c} críticas y {total_r} rechazadas), requiriendo atención prioritaria."
-    )
-
-    # 5. Falla más recurrente
-    falla_top   = df['DescAgrupada'].value_counts().index[0]
-    falla_top_n = int(df['DescAgrupada'].value_counts().iloc[0])
-    falla_top_pct = round(falla_top_n / n * 100, 1)
-    conclusiones.append(
-        f"La falla más recurrente es '{falla_top}' con {falla_top_n} casos "
-        f"({falla_top_pct}% del total de observaciones)."
-    )
-
-    # 6. Desvíos — solo si hay columnas de referencia
-    if tiene_desv and not df_out.empty:
-        # Grupo con mayor desvío promedio absoluto
-        desv_grupo = df_out.groupby('DescAgrupada').agg(
-            Cantidad=('Desviacion','count'),
-            DesvProm=('Desviacion', lambda x: round(x.abs().mean(), 2)),
-            DesvMax=('Desviacion',  lambda x: round(x.abs().max(),  2)),
-        ).sort_values('DesvMax', ascending=False)
-
-        grp_top     = desv_grupo.index[0]
-        grp_max     = desv_grupo.iloc[0]['DesvMax']
-        grp_prom    = desv_grupo.iloc[0]['DesvProm']
-        grp_cant    = int(desv_grupo.iloc[0]['Cantidad'])
-
-        # Fila individual con mayor desvío absoluto
-        fila_max    = df_out.loc[df_out['Desviacion'].abs().idxmax()]
-        veh_max     = fila_max['Vehiculo']
-        desc_max    = str(fila_max['Descripcion'])[:60]
-        ref_min     = fila_max.get('RefMin', '-')
-        ref_max_val = fila_max.get('RefMax', '-')
-        val_relev   = round(float(fila_max['ValorRelevado']), 1) if pd.notna(fila_max['ValorRelevado']) else '-'
-        desv_max_v  = round(float(fila_max['Desviacion']), 2)
-        direccion   = "por encima del máximo" if desv_max_v > 0 else "por debajo del mínimo"
-
+        df['_unidad'] = df['Modulo'].apply(
+            lambda x: None if (x is None or str(x).strip() in ('','0','nan')) else str(x).strip()
+        ).fillna(df['Vehiculo'].astype(str).str.strip())
+        unidad_top   = df['_unidad'].value_counts().index[0]
+        unidad_top_n = int(df['_unidad'].value_counts().iloc[0])
         conclusiones.append(
-            f"En cuanto a valores fuera de parámetro, la categoría con mayor desvío es "
-            f"'{grp_top}' ({grp_cant} casos), con un desvío promedio de {grp_prom} unidades "
-            f"y un máximo de {grp_max} unidades. El caso más extremo corresponde a la unidad "
-            f"{veh_max} ('{desc_max}'), con un valor relevado de {val_relev} "
-            f"frente a un rango de referencia de [{ref_min} – {ref_max_val}], "
-            f"resultando {abs(desv_max_v)} unidades {direccion}."
+            f"La unidad con mayor cantidad de observaciones es {unidad_top} con {unidad_top_n} casos, "
+            f"siendo candidata prioritaria para revisión integral."
         )
 
-    # Escribir conclusiones numeradas
-    for idx, texto in enumerate(conclusiones, 1):
-        p = doc.add_paragraph(style='List Number')
-        run = p.add_run(texto)
-        run.font.size = Pt(11)
-        run.font.name = 'Arial'
+        if 'Clasificacion' in df.columns and df['Clasificacion'].notna().any():
+            vc = df['Clasificacion'].value_counts()
+            clasif_top   = vc.index[0]
+            clasif_top_n = int(vc.iloc[0])
+            clasif_2     = vc.index[1] if len(vc) > 1 else '-'
+            clasif_2_n   = int(vc.iloc[1]) if len(vc) > 1 else 0
+            conclusiones.append(
+                f"La clasificación de falla predominante es '{clasif_top}' con {clasif_top_n} casos "
+                f"({round(clasif_top_n/n*100,1)}% del total), seguida por '{clasif_2}' con {clasif_2_n} casos."
+            )
+
+        total_c = int((df['Criticidad'] == 'C').sum())
+        total_r = int((df['Criticidad'] == 'R').sum())
+        pct_cr  = round((total_c + total_r) / n * 100, 1)
+        conclusiones.append(
+            f"Las observaciones de criticidad alta (Crítico + Rechazado) representan el {pct_cr}% "
+            f"del total ({total_c} críticas y {total_r} rechazadas), requiriendo atención prioritaria."
+        )
+
+        falla_top   = df['DescAgrupada'].value_counts().index[0]
+        falla_top_n = int(df['DescAgrupada'].value_counts().iloc[0])
+        conclusiones.append(
+            f"La falla más recurrente es '{falla_top}' con {falla_top_n} casos "
+            f"({round(falla_top_n/n*100,1)}% del total de observaciones)."
+        )
+
+        if tiene_desv and not df_out.empty:
+            dg = df_out.groupby('DescAgrupada').agg(
+                Cantidad =('Desviacion','count'),
+                DesvProm =('Desviacion', lambda x: round(x.abs().mean(), 2)),
+                DesvMax  =('Desviacion', lambda x: round(x.abs().max(),  2)),
+            ).sort_values('DesvMax', ascending=False)
+            grp_top  = dg.index[0]
+            grp_max  = dg.iloc[0]['DesvMax']
+            grp_prom = dg.iloc[0]['DesvProm']
+            grp_cant = int(dg.iloc[0]['Cantidad'])
+            fila_max = df_out.loc[df_out['Desviacion'].abs().idxmax()]
+            veh_max  = fila_max['Vehiculo']
+            desc_max = str(fila_max['Descripcion'])[:60]
+            ref_min  = fila_max.get('RefMin', '-')
+            ref_maxv = fila_max.get('RefMax', '-')
+            val_rel  = round(float(fila_max['ValorRelevado']), 1) if pd.notna(fila_max['ValorRelevado']) else '-'
+            desv_v   = round(float(fila_max['Desviacion']), 2)
+            direc    = "por encima del máximo" if desv_v > 0 else "por debajo del mínimo"
+            conclusiones.append(
+                f"La categoría con mayor desvío paramétrico es '{grp_top}' ({grp_cant} casos), "
+                f"con desvío promedio de {grp_prom} y máximo de {grp_max} unidades. "
+                f"El caso más extremo corresponde a {veh_max} ('{desc_max}'), "
+                f"con valor relevado {val_rel} frente al rango [{ref_min} – {ref_maxv}], "
+                f"resultando {abs(desv_v)} unidades {direc}."
+            )
+
+        for idx, texto in enumerate(conclusiones, 1):
+            p   = doc.add_paragraph(style='List Number')
+            run = p.add_run(texto)
+            run.font.size = Pt(10)
+            run.font.name = 'Arial'
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -979,12 +1049,9 @@ with tab2:
         fig_line.add_trace(go.Scatter(
             x=monthly_df['Mes'], y=monthly_df['Vehículos'],
             name='Vehículos inspeccionados',
-            mode='lines+markers+text',
+            mode='lines+markers',
             line=dict(color='#66bb6a', width=2, dash='dot'),
             marker=dict(size=7, color='#66bb6a'),
-            text=monthly_df['Vehículos'].astype(str),
-            textposition='top center',
-            textfont=dict(color='#ffa726', size=10),            
             yaxis='y'
         ))
 
@@ -1087,12 +1154,9 @@ with tab2:
         fig_desv.add_trace(go.Scatter(
             x=desv_plot['DescAgrupada'], y=desv_plot['Desv_Min'],
             name='Desvío Mín.',
-            mode='lines+markers+text',
+            mode='lines+markers',
             line=dict(color='#66bb6a', width=1, dash='dash'),
             marker=dict(size=6, color='#66bb6a'),
-            text=desv_plot['Desv_Prom'].astype(str),
-            textposition='bottom center',
-            textfont=dict(color='#ffa726', size=10),
             yaxis='y2'
         ))
 
@@ -1239,76 +1303,76 @@ with tab4:
         }
 
         categorias = ['Fuera de rango', 'Ausencia de elementos', 'Mal estado']
-        #cols_pareto = st.columns(3)
+        cols_pareto = st.columns(3)
 
         for i, cat in enumerate(categorias):
             df_cat = df[df['Clasificacion'].str.strip().str.lower() == cat.lower()].copy()
-            #with cols_pareto[i]:
-            st.markdown(f"##### {cat}")
-            if df_cat.empty:
-                st.caption("Sin datos")
-                continue
+            with cols_pareto[i]:
+                st.markdown(f"##### {cat}")
+                if df_cat.empty:
+                    st.caption("Sin datos")
+                    continue
 
-            # Contar por sistema y calcular % acumulado
-            conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
-            conteo.columns = ['Sistema', 'Cantidad']
-            conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
-            conteo['%_acum'] = (conteo['Cantidad'].cumsum() / conteo['Cantidad'].sum() * 100).round(1)
+                # Contar por sistema y calcular % acumulado
+                conteo = df_cat['SistemaUnidad'].value_counts().reset_index()
+                conteo.columns = ['Sistema', 'Cantidad']
+                conteo['Label'] = conteo['Sistema'].map(SISTEMA_LABELS).fillna(conteo['Sistema'])
+                conteo['%_acum'] = (conteo['Cantidad'].cumsum() / conteo['Cantidad'].sum() * 100).round(1)
 
-            color = CLASIF_COLORS.get(cat, '#4fc3f7')
+                color = CLASIF_COLORS.get(cat, '#4fc3f7')
 
-            fig_p = go.Figure()
+                fig_p = go.Figure()
 
-            # Barras
-            fig_p.add_trace(go.Bar(
-                x=conteo['Label'],
-                y=conteo['Cantidad'],
-                name='Cantidad',
-                marker_color=color,
-                text=conteo['Cantidad'],
-                textposition='outside',
-                textfont=dict(color='#e8eaf0', size=11),
-                yaxis='y'
-            ))
+                # Barras
+                fig_p.add_trace(go.Bar(
+                    x=conteo['Label'],
+                    y=conteo['Cantidad'],
+                    name='Cantidad',
+                    marker_color=color,
+                    text=conteo['Cantidad'],
+                    textposition='outside',
+                    textfont=dict(color='#e8eaf0', size=11),
+                    yaxis='y'
+                ))
 
-            # Línea acumulada
-            fig_p.add_trace(go.Scatter(
-                x=conteo['Label'],
-                y=conteo['%_acum'],
-                name='% Acum.',
-                mode='lines+markers+text',
-                line=dict(color='#ffffff', width=2),
-                marker=dict(size=6, color='#ffffff'),
-                text=[f"{v}%" for v in conteo['%_acum']],
-                textposition='top center',
-                textfont=dict(color='#ffffff', size=10),
-                yaxis='y2'
-            ))
+                # Línea acumulada
+                fig_p.add_trace(go.Scatter(
+                    x=conteo['Label'],
+                    y=conteo['%_acum'],
+                    name='% Acum.',
+                    mode='lines+markers+text',
+                    line=dict(color='#ffffff', width=2),
+                    marker=dict(size=6, color='#ffffff'),
+                    text=[f"{v}%" for v in conteo['%_acum']],
+                    textposition='top center',
+                    textfont=dict(color='#ffffff', size=10),
+                    yaxis='y2'
+                ))
 
-            # Línea de referencia 80%
-            fig_p.add_hline(
-                y=80, line_dash='dash',
-                line_color='#ffa726', line_width=1,
-                annotation_text='80%',
-                annotation_font_color='#ffa726',
-                yref='y2'
-            )
+                # Línea de referencia 80%
+                fig_p.add_hline(
+                    y=80, line_dash='dash',
+                    line_color='#ffa726', line_width=1,
+                    annotation_text='80%',
+                    annotation_font_color='#ffa726',
+                    yref='y2'
+                )
 
-            fig_p.update_layout(
-                **PLOTLY_THEME,
-                height=350,
-                margin=dict(t=30, b=60, l=10, r=50),
-                showlegend=False,
-                xaxis=dict(tickangle=-35, **AXIS_STYLE),
-                yaxis=dict(title='Cantidad', **AXIS_STYLE),
-                yaxis2=dict(
-                    title='% Acumulado',
-                    overlaying='y', side='right',
-                    range=[0, 110],
-                    gridcolor='#1e2a3a', linecolor='#2a3a50'
-                ),
-            )
-            st.plotly_chart(fig_p, use_container_width=True, key=f"pareto_{i}")
+                fig_p.update_layout(
+                    **PLOTLY_THEME,
+                    height=350,
+                    margin=dict(t=30, b=60, l=10, r=50),
+                    showlegend=False,
+                    xaxis=dict(tickangle=-35, **AXIS_STYLE),
+                    yaxis=dict(title='Cantidad', **AXIS_STYLE),
+                    yaxis2=dict(
+                        title='% Acumulado',
+                        overlaying='y', side='right',
+                        range=[0, 110],
+                        gridcolor='#1e2a3a', linecolor='#2a3a50'
+                    ),
+                )
+                st.plotly_chart(fig_p, use_container_width=True, key=f"pareto_{i}")
 
         # ── Últimas observaciones de rechazo ──
         st.markdown("---")
