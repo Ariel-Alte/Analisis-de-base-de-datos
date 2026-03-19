@@ -1,8 +1,22 @@
 """
-App Streamlit — Análisis de Informes de Mantenimiento v3
-=========================================================
-Sub-tabs por MR + filtro Modelo + filtro Meses en TODOS los tabs.
-Word configurable por MR.
+App Streamlit — Análisis de Informes de Mantenimiento
+======================================================
+Creado: 2025-03-19
+Última modificación: 2025-03-19
+
+Control de cambios:
+───────────────────
+v1.0  2025-03-19  Versión inicial — parser dual, KPIs, 6 tabs, Word + Excel.
+v2.0  2025-03-19  Sub-tabs por MR en todos los tabs, filtro Modelo + Meses.
+                  Word configurable por MR. Conteo ponderado por CodItem.
+v3.0  2025-03-19  Excel segmentado por MR seleccionado (hojas con prefijo MR).
+                  Orden cronológico de meses. Conclusiones ampliadas top 3-5.
+
+Instalación:
+    pip install streamlit plotly openpyxl pandas numpy python-docx
+
+Ejecución:
+    streamlit run app_mantenimiento.py
 """
 import io, re, numpy as np, pandas as pd, streamlit as st
 import plotly.express as px, plotly.graph_objects as go
@@ -573,33 +587,93 @@ def generar_word(df, df_out, config=None):
     buf=io.BytesIO();doc.save(buf);buf.seek(0);return buf.getvalue()
 
 
-def generar_excel(df, df_out):
-    buf=io.BytesIO(); n_tot=int(df['CodItem_num'].sum())
-    tiene_desv=not df_out.empty and "Desviacion" in df_out.columns
-    with pd.ExcelWriter(buf,engine='openpyxl') as w:
-        df.groupby("CritAmpliado")['CodItem_num'].sum().sort_values(ascending=False).reset_index().rename(columns={'CritAmpliado':'Criticidad','CodItem_num':'Cantidad'}).to_excel(w,sheet_name="Criticidad",index=False)
-        d=df.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index();d.columns=['Código','Cantidad'];d['Sistema']=d['Código'].map(SISTEMA_LABELS).fillna(d['Código']);d.to_excel(w,sheet_name="Sistemas",index=False)
-        md=[]
-        for m in MONTH_ORDER:
-            dm=df[df['Mes'].str.upper()==m];cnt=int(dm['CodItem_num'].sum());v=dm['Vehiculo'].dropna().nunique()
-            if cnt>0:md.append({'Mes':m.title(),'Obs':cnt,'Veh':v,'Ratio':round(cnt/v,2) if v>0 else 0})
-        if md:pd.DataFrame(md).to_excel(w,sheet_name="Mensual",index=False)
-        df.groupby("DescAgrupada")['CodItem_num'].sum().sort_values(ascending=False).head(15).reset_index().rename(columns={'DescAgrupada':'Falla','CodItem_num':'Cantidad'}).to_excel(w,sheet_name="Top15",index=False)
-        if tiene_desv:df_out.groupby("DescAgrupada").agg(Cant=("CodItem_num","sum"),Prom=("Desviacion",lambda x:round(x.mean(),2)),Max=("Desviacion",lambda x:round(x.abs().max(),2))).reset_index().to_excel(w,sheet_name="Desvíos",index=False)
-        if 'Clasificacion' in df.columns:
-            for cat in ['Fuera de rango','Ausencia de elementos','Mal estado']:
-                dc=df[df['Clasificacion'].str.strip().str.lower()==cat.lower()]
-                if dc.empty:continue
-                c=dc.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index();c.columns=['Sistema','Cantidad']
-                c['%Acum']=(c['Cantidad'].cumsum()/c['Cantidad'].sum()*100).round(1);c.to_excel(w,sheet_name=f"P.{cat[:13]}",index=False)
-        for mrc,ml in[('LOC','LOC'),('CCRR','CCRR'),('CCEE','CCEE'),('CCMM','CCMM')]:
-            dm=df[df['MR']==mrc]
-            if dm.empty:continue
-            dm=dm.copy();dm['_u']=dm['Modulo'].apply(lambda x:None if(x is None or str(x).strip() in('','0','nan'))else str(x).strip()).fillna(dm['Vehiculo'].astype(str).str.strip())
-            dm.groupby('_u')['CodItem_num'].sum().sort_values(ascending=False).head(10).reset_index().rename(columns={'_u':'Unidad','CodItem_num':'Obs'}).to_excel(w,sheet_name=f"Top10_{ml}",index=False)
-        df.pivot_table(index='CritAmpliado',columns='SistemaUnidad',values='CodItem_num',aggfunc='sum',fill_value=0).to_excel(w,sheet_name="Cruzada")
-        df.to_excel(w,sheet_name="Datos",index=False)
-    buf.seek(0);return buf.getvalue()
+def generar_excel(df, df_out, mr_sel=None):
+    """Genera Excel con hojas por cada MR seleccionado. Cada hoja tiene prefijo del MR."""
+    if mr_sel is None: mr_sel = ["General"]
+    buf = io.BytesIO()
+    tiene_desv = not df_out.empty and "Desviacion" in df_out.columns
+
+    def _sn(prefix, name):
+        """Nombre de hoja truncado a 31 chars (límite Excel)."""
+        return f"{prefix}_{name}"[:31]
+
+    with pd.ExcelWriter(buf, engine='openpyxl') as w:
+        for mr_key in mr_sel:
+            if mr_key == "General":
+                dw, dow = df, df_out
+                px = "GEN"
+            else:
+                dw = df[df['MR'] == mr_key]
+                dow = df_out[df_out['MR'] == mr_key] if 'MR' in df_out.columns and not df_out.empty else pd.DataFrame()
+                px = mr_key
+            if dw.empty:
+                continue
+            n = int(dw['CodItem_num'].sum())
+            td = not dow.empty and "Desviacion" in dow.columns
+
+            # Criticidad
+            d = dw.groupby("CritAmpliado")['CodItem_num'].sum().sort_values(ascending=False).reset_index()
+            d.columns = ["Criticidad","Cantidad"]; d["%"] = (d["Cantidad"]/n*100).round(1)
+            d.to_excel(w, sheet_name=_sn(px,"Criticidad"), index=False)
+
+            # Sistemas
+            d = dw.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
+            d.columns = ['Código','Cantidad']; d['Sistema'] = d['Código'].map(SISTEMA_LABELS).fillna(d['Código'])
+            d['%'] = (d['Cantidad']/n*100).round(1)
+            d.to_excel(w, sheet_name=_sn(px,"Sistemas"), index=False)
+
+            # Mensual
+            md = []
+            for m in MONTH_ORDER:
+                dm = dw[dw['Mes'].str.upper()==m]; cnt = int(dm['CodItem_num'].sum()); v = dm['Vehiculo'].dropna().nunique()
+                if cnt > 0: md.append({'Mes':m.title(),'Obs':cnt,'Veh':v,'Ratio':round(cnt/v,2) if v>0 else 0})
+            if md: pd.DataFrame(md).to_excel(w, sheet_name=_sn(px,"Mensual"), index=False)
+
+            # Top 15 fallas
+            d = dw.groupby("DescAgrupada")['CodItem_num'].sum().sort_values(ascending=False).head(15).reset_index()
+            d.columns = ["Falla","Cantidad"]; d['%'] = (d['Cantidad']/n*100).round(1)
+            d.to_excel(w, sheet_name=_sn(px,"Top15"), index=False)
+
+            # Desvíos
+            if td:
+                d = dow.groupby("DescAgrupada").agg(
+                    Cant=("CodItem_num","sum"),
+                    Prom=("Desviacion",lambda x:round(x.mean(),2)),
+                    Max=("Desviacion",lambda x:round(x.abs().max(),2)),
+                    Min=("Desviacion",lambda x:round(x.abs().min(),2))
+                ).reset_index().sort_values("Cant",ascending=False)
+                d.to_excel(w, sheet_name=_sn(px,"Desvíos"), index=False)
+
+            # Paretos
+            if 'Clasificacion' in dw.columns and dw['Clasificacion'].notna().any():
+                for cat in ['Fuera de rango','Ausencia de elementos','Mal estado']:
+                    dc = dw[dw['Clasificacion'].str.strip().str.lower()==cat.lower()]
+                    if dc.empty: continue
+                    c = dc.groupby('SistemaUnidad')['CodItem_num'].sum().sort_values(ascending=False).reset_index()
+                    c.columns = ['Sistema','Cantidad']
+                    c['%'] = (c['Cantidad']/c['Cantidad'].sum()*100).round(1)
+                    c['%Acum'] = (c['Cantidad'].cumsum()/c['Cantidad'].sum()*100).round(1)
+                    c.to_excel(w, sheet_name=_sn(px,f"P.{cat[:10]}"), index=False)
+
+            # Top 10 unidades
+            dw2 = dw.copy()
+            dw2['_u'] = dw2['Modulo'].apply(lambda x: None if (x is None or str(x).strip() in ('','0','nan')) else str(x).strip()).fillna(dw2['Vehiculo'].astype(str).str.strip())
+            d = dw2.groupby('_u')['CodItem_num'].sum().sort_values(ascending=False).head(10).reset_index()
+            d.columns = ['Unidad','Obs']
+            d.to_excel(w, sheet_name=_sn(px,"Top10Unid"), index=False)
+
+            # Cruzada
+            try:
+                pv = dw.pivot_table(index='CritAmpliado',columns='SistemaUnidad',values='CodItem_num',aggfunc='sum',fill_value=0)
+                pv.to_excel(w, sheet_name=_sn(px,"Cruzada"))
+            except Exception:
+                pass
+
+        # Hoja de datos completos (siempre, sin prefijo)
+        df.to_excel(w, sheet_name="Datos Completos", index=False)
+
+    buf.seek(0)
+    return buf.getvalue()
 
 # ═══════════════════════════════════════════════
 # SIDEBAR + PANTALLA PRINCIPAL
@@ -692,7 +766,7 @@ with tab6:
             st.download_button("⬇️ Descargar .docx",wb,f"Informe_{ls}.docx",mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     with b2:
         if st.button("📊 Generar Excel",type="secondary"):
-            with st.spinner("Generando Excel..."): eb=generar_excel(df,df_out)
+            with st.spinner("Generando Excel..."): eb=generar_excel(df,df_out,mr_sel=mr_sel)
             st.success("✅ Excel generado")
             ls=(hdr_linea or"Datos").replace(" ","_").replace("/","_")[:30]
             st.download_button("⬇️ Descargar .xlsx",eb,f"Datos_{ls}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
